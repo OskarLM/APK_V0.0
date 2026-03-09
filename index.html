@@ -12,213 +12,54 @@
       --primary:#d4af37;--success:#22c55e;--danger:#ef4444;--warning:#f97316;--electric-blue:#00f2ff;
       --bg:#0b0f1a;--card-bg:rgba(30,41,59,.7);--text:#f8fafc;
       --gold-gradient:linear-gradient(45deg,#bf953f,#fcf6ba,#b38728,#fbf5b7,#aa771c);
-      --gold-metal:linear-gradient(45deg,#8a6d3b,#d4af37,#fcf6ba,#d4af37,#8a6d3b);
     }
     *{box-sizing:border-box}
-    html,body{height:100%}
-    body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);margin:0;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);margin:0;overflow-x:hidden}
 
-    .background-icon{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:30vw;font-weight:900;background:var(--gold-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;opacity:.1;z-index:-1;pointer-events:none}
-    .topbar{background:rgba(30,41,59,.95);backdrop-filter:blur(10px);padding:20px;font-size:15px;font-weight:700;text-align:center;border-bottom:1px solid var(--primary);color:var(--primary);position:sticky;top:0;z-index:1000}
+    .background-icon{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:30vw;font-weight:900;
+      background:var(--gold-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;opacity:.1;z-index:-1;}
+
+    .topbar{background:rgba(30,41,59,.9);padding:20px;font-size:15px;font-weight:700;text-align:center;border-bottom:1px solid var(--primary);color:var(--primary);position:sticky;top:0;z-index:1000}
+
     .container{padding:20px;position:relative;z-index:1}
 
-    .card{background:var(--card-bg);padding:16px;margin:12px 0;border-radius:16px;box-shadow:0 4px 15px rgba(0,0,0,.3);position:relative;border-left:5px solid var(--primary);backdrop-filter:blur(8px)}
+    .card{background:var(--card-bg);padding:16px;margin:12px 0;border-radius:16px;box-shadow:0 4px 15px rgba(0,0,0,.3);position:relative;
+      border-left:5px solid var(--primary);backdrop-filter:blur(8px)}
     .card b{font-size:14px;color:#fff;display:block}
     .card .meta{font-size:11px;color:var(--primary);font-weight:700;margin-bottom:4px}
     .card .monto{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:16px;font-weight:800}
 
-    .filtros-wrapper{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;background:var(--card-bg);padding:12px;border-radius:20px;border:1px solid rgba(212,175,55,.3);margin-bottom:20px}
-    .filtros-wrapper .filtro-item:nth-child(1),
-    .filtros-wrapper .filtro-item:nth-child(2),
-    .filtros-wrapper .filtro-item:nth-child(3){grid-column:span 2}
-    .filtros-wrapper .filtro-item:nth-child(4),
-    .filtros-wrapper .filtro-item:nth-child(5){grid-column:span 3;display:flex;flex-direction:column}
-    .filtro-item label{font-size:13px;color:var(--primary);font-weight:900;letter-spacing:1px;margin-bottom:5px;display:inline-block}
+    .filtros-wrapper{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;background:var(--card-bg);padding:12px;border-radius:20px;
+      border:1px solid rgba(212,175,55,.3);margin-bottom:20px}
+    .filtros-wrapper * label{font-size:13px;color:var(--primary);font-weight:900;margin-bottom:5px;display:inline-block}
 
-    input,select,textarea{width:100%;padding:12px;margin:8px 0;font-size:13px;border-radius:12px;border:1px solid #334155;background:rgba(15,23,42,.9);color:#fff}
-    .input-importe{height:70px;font-weight:700;font-size:22px}
-    .input-nota{min-height:100px}
-    .row-flex{display:flex;gap:8px;margin-bottom:8px}
-    .align-center{align-items:center}
-    .mt-8{margin-top:8px}
-    .btn-trash{width:70px;height:68px;border-radius:16px;background:var(--danger);border:none;color:#fff;font-size:24px}
+    input,select,textarea{width:100%;padding:12px;margin:8px 0;font-size:13px;border-radius:12px;border:1px solid #334155;
+      background:rgba(15,23,42,.9);color:#fff}
 
-    .footer-controles{position:fixed;bottom:0;left:0;width:100%;background:rgba(15,23,42,.98);backdrop-filter:blur(15px);
-      padding:15px 20px calc(35px + env(safe-area-inset-bottom));box-sizing:border-box;border-top:2px solid var(--primary);
-      z-index:1100;border-radius:24px 24px 0 0}
+    .footer-controles{position:fixed;bottom:0;left:0;width:100%;background:rgba(15,23,42,.98);padding:15px 20px calc(35px);
+      border-top:2px solid var(--primary);z-index:1100;border-radius:24px 24px 0 0}
     .footer-actions{display:flex;gap:8px;margin-bottom:20px}
-    .btn-small{padding:10px;flex:1;font-size:10px;background:#222;color:var(--primary);border-radius:8px;border:1px solid var(--primary);font-weight:700}
+    .btn-small{padding:10px;flex:1;font-size:10px;background:#222;color:var(--primary);border-radius:8px;border:1px solid var(--primary);
+      font-weight:700}
     .btn-reset{background:#450a0a;color:var(--danger);border-color:var(--danger);flex:.4}
+
     .footer-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;width:100%}
-    .plus{background:var(--gold-gradient);width:65px;height:65px;border-radius:50%;font-size:35px;color:#000;display:flex;align-items:center;justify-content:center;border:none;font-weight:700;cursor:pointer}
-    #balance{font-size:24px;font-weight:900;padding:10px 15px;background:#000;border-radius:14px;border:1px solid var(--primary);text-align:center;justify-self:end;min-width:110px}
-    .hidden{display:none!important}
+    .plus{background:var(--gold-gradient);width:65px;height:65px;border-radius:50%;font-size:35px;color:#000;display:flex;
+      align-items:center;justify-content:center;border:none;font-weight:700;cursor:pointer}
+    #balance{font-size:24px;font-weight:900;padding:10px 15px;background:#000;border-radius:14px;border:1px solid var(--primary);
+      text-align:center;justify-self:end;min-width:110px}
 
-    /* Overlays PIN */
-    .popup-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(15px)}
-    .popup-content{background:#1e293b;padding:25px;border-radius:24px;text-align:center;width:85%;max-width:320px;border:2px solid var(--primary)}
-    .pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px}
-    .btn-pin{background:rgba(255,255,255,.05);border:1px solid var(--primary);color:#fff;padding:15px;border-radius:12px;font-size:20px;font-weight:700}
-    .pin-dots{display:flex;justify-content:center;gap:10px;margin-bottom:20px}
-    .dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--primary)}
-    .dot.filled{background:var(--primary)}
-    .title-pin{color:var(--primary);margin-bottom:10px}
-    .spinner{width:30px;height:30px;border:3px solid rgba(212,175,55,.1);border-left-color:var(--primary);border-radius:50%;animation:spin 1s linear infinite;margin:10px auto}
-    .loader{display:none}
-    @keyframes spin{to{transform:rotate(360deg)}}
-
-    .btn-primario{background:var(--gold-gradient);color:#000;height:70px;width:100%;font-size:22px;margin-top:10px;border:none;font-weight:700;border-radius:16px}
-    .btn-peligro{background:var(--danger);color:#fff;height:60px;width:100%;font-size:18px;margin-top:10px;border:none;font-weight:700;border-radius:16px}
-    .btn-cancelar{background:linear-gradient(45deg,#757575,#c0c0c0,#ffffff,#c0c0c0,#757575);color:#000;height:70px;width:100%;font-size:22px;font-weight:700;border-radius:16px;margin-top:10px;border:none;text-transform:uppercase}
-
-    .btn-casa-premium{position:fixed;bottom:35px;left:27%;width:65px;height:65px;background:var(--gold-gradient);border-radius:50%;display:flex;align-items:center;justify-content:center;border:none;z-index:1200;box-shadow:0 4px 15px rgba(0,0,0,.5);cursor:pointer;transition:all .3s ease}
+    .btn-casa-premium{position:fixed;bottom:35px;left:27%;width:65px;height:65px;background:var(--gold-gradient);border-radius:50%;
+      display:flex;align-items:center;justify-content:center;border:none;z-index:1200;box-shadow:0 4px 15px rgba(0,0,0,.5);cursor:pointer}
     .btn-casa-premium svg{fill:black;width:32px;height:32px}
     .btn-casa-premium.apagado{filter:grayscale(1) brightness(.4);transform:scale(.85)}
 
-    /* Premium popups */
-    .premium-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;z-index:99999;backdrop-filter:blur(12px)}
-    .premium-content{background:#0b0f1a;width:85%;max-width:320px;border-radius:40px;border:2px solid #d4af37;padding:35px 25px;text-align:center;box-shadow:0 0 40px rgba(212,175,55,.3)}
-    .premium-title{color:#d4af37;font-size:22px;font-weight:900;margin-bottom:25px;letter-spacing:1px}
-    .premium-input{background:#131926;border:1px solid #1e293b;color:#fff;border-radius:15px;padding:18px;font-size:18px;width:100%;box-sizing:border-box;margin-bottom:25px;text-align:center;outline:none}
-    .btn-gold{background:linear-gradient(180deg,#bf953f,#fcf6ba,#b38728);color:black;border:none;width:100%;height:65px;border-radius:20px;font-size:20px;font-weight:900;margin-bottom:12px;text-transform:uppercase}
-    .btn-silver{background:linear-gradient(180deg,#757575,#c0c0c0,#ffffff,#c0c0c0);color:black;border:none;width:100%;height:65px;border-radius:20px;font-size:20px;font-weight:900;text-transform:uppercase}
-
-    /* Nómina popup */
-    .nomina-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;z-index:100001;backdrop-filter:blur(15px)}
-    .nomina-content{background:#0b0f1a;width:85%;max-width:340px;border-radius:45px;border:2px solid #d4af37;padding:40px 25px;text-align:center;box-shadow:0 0 50px rgba(212,175,55,.3)}
-    .nomina-title{color:#d4af37;font-size:24px;font-weight:900;margin-bottom:35px;letter-spacing:1px;text-transform:uppercase}
-    .btn-nomina{width:100%;height:75px;border-radius:25px;font-size:24px;font-weight:900;border:none;margin-bottom:15px;cursor:pointer;text-transform:uppercase;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 15px rgba(0,0,0,.4)}
-    .btn-oskar{background:linear-gradient(180deg,#bf953f,#fcf6ba,#b38728);color:black}
-    .btn-josune{background:linear-gradient(180deg,#a00050,#ff1493,#ff85c1,#ff1493,#a00050);color:white}
-    .btn-cancel{background:linear-gradient(180deg,#757575,#c0c0c0,#ffffff,#c0c0c0);color:black;margin-bottom:0}
-
-    @media (prefers-reduced-motion: reduce){
-      .spinner{animation:none}
-      *{scroll-behavior:auto;transition:none!important}
-    }
+    .hidden{display:none!important}
   </style>
 </head>
 <body>
-  <!-- Overlay PIN -->
-  <div id="authOverlay" class="popup-overlay" role="dialog" aria-modal="true" aria-label="Acceso PIN">
-    <div class="popup-content">
-      <h2 class="title-pin">ACCESO GOLD</h2>
-      <div class="pin-dots" aria-hidden="true">
-        <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
-      </div>
-      <div class="pin-grid">
-        <button class="btn-pin" data-pin="1">1</button><button class="btn-pin" data-pin="2">2</button><button class="btn-pin" data-pin="3">3</button>
-        <button class="btn-pin" data-pin="4">4</button><button class="btn-pin" data-pin="5">5</button><button class="btn-pin" data-pin="6">6</button>
-        <button class="btn-pin" data-pin="7">7</button><button class="btn-pin" data-pin="8">8</button><button class="btn-pin" data-pin="9">9</button>
-        <!-- Sin biometría para simplificar -->
-        <button class="btn-pin" data-pin="0">0</button>
-        <button class="btn-pin" id="btnClear" aria-label="Borrar PIN">✖</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- Marca de agua -->
   <div class="background-icon">O&J</div>
 
-  <!-- Vista principal -->
-  <div id="movimientos" class="hidden" data-permiso="" data-modo="lista">
-    <div class="topbar">MIS GASTOS • V0.9.1 <span id="tagBackup">APK CLOUD</span></div>
-
-    <div class="container">
-      <!-- Filtros -->
-      <div class="filtros-wrapper" role="region" aria-label="Filtros">
-        <div class="filtro-item"><label for="filtroAño">AÑO</label><select id="filtroAño"></select></div>
-        <div class="filtro-item"><label for="filtroMes">MES</label><select id="filtroMes"></select></div>
-        <div class="filtro-item"><label for="filtroOri">ORI</label><select id="filtroOri"></select></div>
-        <div class="filtro-item"><label for="filtroCat">CAT</label><select id="filtroCat"></select></div>
-        <div class="filtro-item"><label for="filtroSub">SUBCAT</label><select id="filtroSub"></select></div>
-      </div>
-
-      <!-- Lista / Gráficos -->
-      <div id="lista"></div>
-      <div id="loader" class="loader"><div class="spinner"></div></div>
-      <div style="height:250px"></div>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer-controles">
-      <div class="footer-actions">
-        <button class="btn-small" id="btnExport">📊 EXPORTAR</button>
-        <button class="btn-small" id="btnImport">📥 IMPORTAR</button>
-        <button class="btn-small btn-reset" id="btnReset">⚠️ RESET</button>
-        <input type="file" id="inputFile" class="hidden" accept=".csv" />
-      </div>
-
-      <div class="footer-row">
-        <button class="plus" id="btnGraficos" aria-label="Mostrar gráficos" title="Gráficos">
-          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="black" stroke-width="3" aria-hidden="true">
-            <line x1="18" y1="20" x2="18" y2="10"></line>
-            <line x1="12" y1="20" x2="12" y2="4"></line>
-            <line x1="6" y1="20" x2="6" y2="14"></line>
-          </svg>
-        </button>
-        <button class="plus" id="btnNuevo" aria-label="Añadir movimiento">+</button>
-        <div id="balance" aria-live="polite">0.00 €</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Formulario -->
-  <div id="form" class="hidden" aria-label="Formulario de movimiento">
-    <div class="topbar" id="tituloForm">NUEVO REGISTRO</div>
-
-    <div class="container">
-      <div class="row-flex">
-        <select id="origen"></select>
-        <input type="date" id="fecha" style="width:45%;" />
-      </div>
-      <input type="hidden" id="editId" />
-
-      <div class="row-flex align-center">
-        <select id="categoria"></select>
-        <button id="btnDelCat" class="btn-trash" aria-label="Borrar categoría">🗑</button>
-      </div>
-
-      <div class="row-flex align-center mt-8">
-        <select id="subcategoria"></select>
-        <button id="btnDelSub" class="btn-trash" aria-label="Borrar subcategoría">🗑</button>
-      </div>
-
-      <input id="importe" type="number" step="0.01" inputmode="decimal"
-             placeholder="0.00 €" class="input-importe" enterkeyhint="done">
-      <textarea id="descripcion" maxlength="200" placeholder="Nota..."
-                class="input-nota" enterkeyhint="done"></textarea>
-
-      <button id="btnGuardar" class="btn-primario">GUARDAR</button>
-      <div id="btnEliminarRegistro" class="hidden">
-        <button id="btnEliminar" class="btn-peligro">ELIMINAR</button>
-      </div>
-      <button id="btnCancelar" class="btn-cancelar">CANCELAR</button>
-    </div>
-  </div>
-
-  <!-- Botón Casa Oro (solo en gráficos) -->
-  <button class="btn-casa-premium" id="btnFiltroCasa" aria-label="Ocultar/Mostrar Casa" title="Casa" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-  </button>
-
-  <script>
-    // ===== Utilidades =====
-    const qs  = (s, r=document) => r.querySelector(s);
-    const qsa = (s, r=document) => Array.from(r.querySelectorAll(s));
-    function el(tag, props={}, children=[]){
-      const node = document.createElement(tag);
-      if (props.class) node.className = props.class;
-      if (props.style) node.setAttribute('style', props.style);
-      if (props.text !== undefined) node.textContent = props.text;
-      Object.entries(props).forEach(([k,v])=>{
-        if(['class','style','text'].includes(k)) return;
-        if (k==='onClick' && typeof v==='function') node.addEventListener('click', v);
-        else node.setAttribute(k,v);
-      });
-      children.forEach(c => node.appendChild(c));
-      return node;
-    }
-    function addOption(sel, value, selected=false){ const o=document.createElement('option'); o.value=value; o.textContent=value; if(selected) o.selected=true; sel.appendChild(o); }
-    function fmtEuro(n){ return `${n.toFixed(2)} €`; }
-
+  <!-- APP SIN PIN -->
+  <div id="movimientos" data-permiso="OK" data-modo="lista">
