@@ -432,8 +432,9 @@ window.onscroll = () => {
   }
 };
 
+<script>
 /* ==========================
-   CSV: EXPORTACIÓN EN COLUMNAS (formato Excel)
+   CSV: EXPORTACIÓN (filas → columnas) ; coma decimal
 ========================== */
 const exportarCSV = () => {
   if (!movimientos || movimientos.length === 0) {
@@ -441,46 +442,49 @@ const exportarCSV = () => {
     return;
   }
 
-  // Preparamos columnas
-  const colFecha = ["Fecha"];
-  const colOrigen = ["Origen"];
-  const colCategoria = ["Categoria"];
-  const colSubcategoria = ["Subcategoria"];
-  const colImporte = ["Importe"];
-  const colDescripcion = ["Descripcion"];
+  // Cabecera estándar
+  const out = ["Fecha;Origen;Categoria;Subcategoria;Importe;Descripcion"];
 
   movimientos.forEach(m => {
-    const [y,mo,d] = m.f.split("-");
-    const fechaES = `${d}/${mo}/${y}`;
-    const impStr = m.imp.toString().replace(".", ",");
-    const desc = (m.d || "").replace(/\"+/g,'"');
+    // Fecha ISO (yyyy-mm-dd) → dd/mm/yyyy
+    const [y, mo, d] = (m.f || "").split("-");
+    const fechaES = (y && mo && d) ? `${d}/${mo}/${y}` : (m.f || "");
 
-    colFecha.push(fechaES);
-    colOrigen.push(m.o);
-    colCategoria.push(m.c);
-    colSubcategoria.push(m.s);
-    colImporte.push(impStr);
-    colDescripcion.push(desc);
+    // Importe con coma decimal
+    let impStr = (typeof m.imp === "number" ? m.imp : parseFloat(m.imp || 0)).toString();
+    impStr = impStr.replace(".", ","); // 1234.56 -> 1234,56
+
+    // Descripción: entrecomillada + comillas internas escapadas
+    const desc = (m.d ?? "").toString().replace(/"/g, '""'); // -> duplica comillas
+    const descCsv = `"${desc}"`;
+
+    // Construir fila
+    out.push([
+      fechaES,
+      m.o ?? "",
+      m.c ?? "",
+      m.s ?? "",
+      impStr,
+      descCsv
+    ].join(";"));
   });
 
-  // Convertimos cada columna en una línea CSV
-  const csv =
-    colFecha.join(";") + "\n" +
-    colOrigen.join(";") + "\n" +
-    colCategoria.join(";") + "\n" +
-    colSubcategoria.join(";") + "\n" +
-    colImporte.join(";") + "\n" +
-    colDescripcion.join(";");
-
-  // Descargar archivo
+  const csv = out.join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
+  const url  = URL.createObjectURL(blob);
+
   const a = document.createElement("a");
   a.href = url;
-  a.download = "mis_gastos_columnas.csv";
+  a.download = "gastos_exportados.csv";
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
+</script>
+
+
+  
 /* ==========================
    CSV: IMPORTACIÓN (detecta TAB/;/, y coma decimal)
 ========================== */
