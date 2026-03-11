@@ -1,0 +1,21 @@
+{
+  "name": "MIS GASTOS",
+  "short_name": "Gastos",
+  "description": "App local y privada para registrar y analizar gastos e ingresos.",
+  "id": "/APK-control-de-gastos/",
+  "start_url": "/APK-control-de-gastos/index.html",
+  "scope": "/APK-control-de-gastos/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0f1a",
+  "theme_color": "#d4af37",
+  "icons": [
+    { "src": "/APK-control-de-gastos/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/APK-control-de-gastos/icons/icon-256-maskable.png", "sizes": "256x256", "type": "image/png", "purpose": "maskable" },
+    { "src": "/APK-control-de-gastos/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "shortcuts": [
+    { "name": "Nuevo registro", "short_name": "Nuevo", "url": "/APK-control-de-gastos/index.html#nuevo", "description": "Añadir un nuevo movimiento" },
+    { "name": "Ver gráficos", "short_name": "Gráficos", "url": "/APK-control-de-gastos/index.html#graficos", "description": "Abrir el panel de análisis" }
+  ]
+}
