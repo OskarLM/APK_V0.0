@@ -11,7 +11,7 @@
 
   <!-- PWA: color del tema + manifest (rutas GitHub Pages) -->
   <meta name="theme-color" content="#d4af37">
-  <link rel="manifest" href="/APK-control-de-gastos/manifest.json">
+  <link rel="manifest" href="/APK_V0.0/manifest.json">
 
   <!-- Icono Apple (tu SVG inline original) -->
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230b0f1a'/><circle cx='50' cy='50' r='40' fill='none' stroke='%23d4af37' stroke-width='4'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-family='serif' font-weight='bold' font-size='35' fill='%23d4af37'>O%26J</text></svg>">
@@ -921,7 +921,7 @@ document.head.appendChild(estiloFiltrosGrandes);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/APK-control-de-gastos/sw.js')
+      .register('/APK_0.0/sw.js')
       .catch(err => console.error("SW ERROR:", err));
   });
 }
