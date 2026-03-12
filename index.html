@@ -566,56 +566,69 @@ window.onscroll = () => {
 </script>
 
 <script>
-/* ==========================
-  CSV: EXPORTACIÓN EN COLUMNAS (por celdas)
-  - Separador: ';'
-  - Decimales: coma europea
-========================== */
+/**
+ * EXPORTACIÓN “POR FILAS”
+ * - 1ª fila: cabeceras
+ * - Cada movimiento: una fila
+ * - Delimitador: ';'
+ * - Decimales: coma europea
+ * - Fechas: dd/mm/yyyy (para máxima compatibilidad con Excel ES)
+ */
 const exportarCSV = () => {
   if (!movimientos || movimientos.length === 0) {
     alert("No hay datos para exportar.");
     return;
   }
-  // Cabeceras por columna
-  const colFecha = ["Fecha"];
-  const colOrigen = ["Origen"];
-  const colCategoria = ["Categoria"];
-  const colSubcategoria= ["Subcategoria"];
-  const colImporte = ["Importe"];
-  const colDescripcion = ["Descripcion"];
 
-  // Relleno
-  movimientos.forEach(m => {
-    const [y, mo, d] = (m.f || "").split("-");
-    const fechaES = (y && mo && d) ? `${d}/${mo}/${y}` : (m.f || "");
+  // Utilidad: escapar campos CSV según RFC4180 (doblar comillas y encerrar si hace falta)
+  const csvEscape = (v) => {
+    const s = (v ?? "").toString();
+    const needsQuotes = /[;\n",]/.test(s);          // contiene separadores, comillas o saltos
+    const doubled     = s.replace(/"/g, '""');      // "" para comillas internas
+    return needsQuotes ? `"${doubled}"` : doubled;
+  };
 
-    const impStr = (typeof m.imp === "number" ? m.imp : parseFloat(m.imp || 0))
-      .toString()
-      .replace(".", ",");
+  // Utilidad: fecha ISO -> dd/mm/yyyy
+  const toESDate = (iso) => {
+    const [y, m, d] = (iso || "").split("-");
+    if (!y || !m || !d) return iso || "";
+    return `${d}/${m}/${y}`;
+  };
 
-    const desc = (m.d || "").replace(/\\"+/g, '"').trim();
+  // Utilidad: número -> coma europea
+  const toEuro = (n) => {
+    const val = (typeof n === "number" ? n : parseFloat(n || 0));
+    // Convertimos a string con punto y luego cambiamos el último punto por coma
+    // (evita romper miles si alguna vez se formatean)
+    const s = Number.isFinite(val) ? val.toString() : "0";
+    // Si no lleva decimales, devolvemos tal cual
+    if (!s.includes(".")) return s;
+    // Cambiar el punto decimal por coma
+    return s.replace(".", ",");
+  };
 
-    colFecha.push(fechaES);
-    colOrigen.push(m.o || "");
-    colCategoria.push(m.c || "");
-    colSubcategoria.push(m.s || "");
-    colImporte.push(impStr);
-    colDescripcion.push(desc);
-  });
+  // Cabeceras (coinciden con las que tu importador reconoce)
+  const headers = ["Fecha","Origen","Categoria","Subcategoria","Importe","Descripcion"];
 
-  const csv =
-    colFecha.join(";") + "\n" +
-    colOrigen.join(";") + "\n" +
-    colCategoria.join(";") + "\n" +
-    colSubcategoria.join(";")+ "\n" +
-    colImporte.join(";") + "\n" +
-    colDescripcion.join(";");
+  // Construir filas
+  const rows = movimientos.map(m => ([
+    toESDate(m.f),
+    m.o || "",
+    m.c || "",
+    m.s || "",
+    toEuro(m.imp),
+    (m.d ?? "").replace(/\\"+/g, '"').trim()
+  ].map(csvEscape).join(";")));
 
+  // Unir todo: cabeceras + filas
+  const csv = [headers.join(";"), ...rows].join("\n");
+
+  // Descargar
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
   a.href = url;
-  a.download = "mis_gastos_columnas.csv";
+  a.download = "mis_gastos_filas.csv";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
