@@ -88,6 +88,17 @@
         <input type="file" id="inputFile" class="hidden" onchange="importarCSV(event)" />
       </div>
 
+<!-- Botones de copia de seguridad -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px;">
+  <button id="btnBackupOneDrive" class="btn-gold" onclick="guardarCopiaEnOneDrive()">
+    Guardar copia en OneDrive
+  </button>
+  <button id="btnRestoreOneDrive" class="btn-silver" onclick="restaurarCopiaDeOneDrive()">
+    Restaurar copia de OneDrive
+  </button>
+</div>
+
+      
       <div class="footer-row">
         <button class="plus" onclick="abrirGraficos()" aria-label="Ver gráficos"
                 style="width:55px;height:55px;background:var(--gold-metal);font-size:20px">
