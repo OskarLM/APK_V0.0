@@ -2,10 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-  />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>MIS GASTOS V0.0 BETA</title>
 
   <!-- PWA -->
@@ -16,13 +14,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="apple-touch-icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230b0f1a'/><circle cx='50' cy='50' r='40' fill='none' stroke='%23d4af37' stroke-width='4'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-family='serif' font-weight='bold' font-size='35' fill='%23d4af37'>O%26J</text></svg>'" />
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230b0f1a'/><circle cx='50' cy='50' r='40' fill='none' stroke='%23d4af37' stroke-width='4'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-family='serif' font-weight='bold' font-size='35' fill='%23d4af37'>O%26J</text></svg>">
 
-  <!-- CSS principal extraído -->
-  <link rel="stylesheet" href="./css/style.css" />
+  <!-- Estilos -->
+  <link rel="stylesheet" href="./style.css" />
 </head>
-
 <body>
+
   <!-- Overlay de acceso (PIN) -->
   <div id="authOverlay" class="popup-overlay" role="dialog" aria-modal="true" aria-label="Acceso PIN">
     <div class="popup-content">
@@ -38,7 +36,7 @@
         <button class="btn-pin" onclick="pressPin(7)" aria-label="7">7</button>
         <button class="btn-pin" onclick="pressPin(8)" aria-label="8">8</button>
         <button class="btn-pin" onclick="pressPin(9)" aria-label="9">9</button>
-        <button class="btn-pin" onclick="biometricAuth()" style="color:var(--electric-blue)" aria-label="Biometría">🫬</button>
+        <button class="btn-pin" onclick="biometricAuth()" style="color:var(--electric-blue)" aria-label="Biometría">🧬</button>
         <button class="btn-pin" onclick="pressPin(0)" aria-label="0">0</button>
         <button class="btn-pin" onclick="clearPin()" style="color:var(--danger)" aria-label="Borrar">✖</button>
       </div>
@@ -47,32 +45,17 @@
 
   <div class="background-icon">O&J</div>
 
-  <!-- Vista principal -->
-  <div id="movimientos" class="hidden">
+  <!-- VISTA PRINCIPAL: MOVIMIENTOS (lista / gráficos) -->
+  <div id="movimientos" class="hidden" data-modo="lista">
     <div class="topbar">MIS GASTOS • V0.0 BETA</div>
 
     <div class="container">
       <div class="filtros-wrapper">
-        <div class="filtro-item">
-          <span style="font-size:9px;color:var(--primary)">AÑO</span>
-          <select id="filtroAño" onchange="resetPagina();mostrar()"></select>
-        </div>
-        <div class="filtro-item">
-          <span style="font-size:9px;color:var(--primary)">MES</span>
-          <select id="filtroMes" onchange="resetPagina();mostrar()"></select>
-        </div>
-        <div class="filtro-item">
-          <span style="font-size:9px;color:var(--primary)">ORI</span>
-          <select id="filtroOri" onchange="resetPagina();mostrar()"></select>
-        </div>
-        <div class="filtro-item">
-          <span style="font-size:9px;color:var(--primary)">CAT</span>
-          <select id="filtroCat" onchange="resetPagina();mostrar()"></select>
-        </div>
-        <div class="filtro-item">
-          <span style="font-size:9px;color:var(--primary)">SUBCAT</span>
-          <select id="filtroSub" onchange="resetPagina();mostrar()"></select>
-        </div>
+        <div class="filtro-item"><span>AÑO</span><select id="filtroAño" onchange="resetPagina();mostrar()"></select></div>
+        <div class="filtro-item"><span>MES</span><select id="filtroMes" onchange="resetPagina();mostrar()"></select></div>
+        <div class="filtro-item"><span>ORI</span><select id="filtroOri" onchange="resetPagina();mostrar()"></select></div>
+        <div class="filtro-item"><span>CAT</span><select id="filtroCat" onchange="resetPagina();mostrar()"></select></div>
+        <div class="filtro-item"><span>SUBCAT</span><select id="filtroSub" onchange="resetPagina();mostrar()"></select></div>
       </div>
 
       <div id="lista" aria-live="polite"></div>
@@ -80,6 +63,7 @@
       <div style="height:250px"></div>
     </div>
 
+    <!-- Footer controles -->
     <div class="footer-controles">
       <div style="display:flex;gap:8px;margin-bottom:20px">
         <button class="btn-small" onclick="exportarCSV()">📊 EXPORTAR</button>
@@ -89,22 +73,53 @@
       </div>
 
       <div class="footer-row">
-        <button class="plus" onclick="abrirGraficos()" aria-label="Ver gráficos"
-                style="width:55px;height:55px;background:var(--gold-metal);font-size:20px">
+        <!-- BOTÓN IZQ: cambia dinámicamente entre “Gráficos” (barras) y “Gráficos 2” (icono rojo/verde) -->
+        <button id="btnGraficos" class="plus" aria-label="Ver gráficos" onclick="abrirGraficos()"
+                title="Gráficos">
+          <!-- Icono barras por defecto -->
           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="black" stroke-width="3">
             <line x1="18" y1="20" x2="18" y2="10"></line>
             <line x1="12" y1="20" x2="12" y2="4"></line>
-            <line x1="6" y1="20" x2="6" y2="14"></line>
+            <line x1="6"  y1="20" x2="6"  y2="14"></line>
           </svg>
         </button>
 
+        <!-- BOTÓN CENTRAL: abre formulario (sin cambios) -->
         <button class="plus" onclick="abrirFormulario()" aria-label="Nuevo registro">+</button>
+
+        <!-- Balance -->
         <div id="balance">0.00 €</div>
       </div>
     </div>
   </div>
 
-  <!-- Formulario -->
+  <!-- NUEVA VISTA: GRÁFICOS 2 -->
+  <div id="graficos2" class="hidden">
+    <div class="topbar">GRÁFICOS 2 • EVOLUCIÓN 13 MESES</div>
+    <div class="container">
+      <div id="g2Wrapper" class="g2-wrapper">
+        <!-- Aquí se inyecta el gráfico de cuadrados -->
+      </div>
+      <div style="height:180px"></div>
+    </div>
+
+    <!-- Footer con botón para volver a “Gráficos” -->
+    <div class="footer-controles">
+      <div class="footer-row" style="grid-template-columns: auto 1fr;">
+        <!-- Misma forma/tamaño/color/dibujo que el de gráficos en la vista original -->
+        <button class="plus" aria-label="Volver a Gráficos" onclick="volverAGraficos()" title="Volver a Gráficos"
+                style="justify-self:start">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="black" stroke-width="3">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6"  y1="20" x2="6"  y2="14"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORMULARIO -->
   <div id="form" class="hidden">
     <div class="topbar" id="tituloForm">NUEVO REGISTRO</div>
     <div class="container">
@@ -112,34 +127,51 @@
         <select id="origen"></select>
         <input type="date" id="fecha" style="width:45%" onclick="this.showPicker()" />
       </div>
-
       <input type="hidden" id="editId" />
+
       <div style="display:flex;gap:8px;align-items:center">
         <select id="categoria" onchange="manejarNuevo(this,'categoria')"></select>
         <button onclick="borrarElemento('categoria')"
                 style="width:70px;height:68px;border-radius:16px;background:var(--danger);border:none;color:#fff;font-size:24px">🗑️</button>
       </div>
-
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <select id="subcategoria" onchange="manejarNuevo(this,'subcategoria')"></select>
         <button onclick="borrarElemento('subcategoria')"
                 style="width:70px;height:68px;border-radius:16px;background:var(--danger);border:none;color:#fff;font-size:24px">🗑️</button>
       </div>
 
-      <input id="importe" type="number" step="0.01" inputmode="decimal" placeholder="0.00 €"
-             style="height:70px!important;font-weight:700" />
+      <input id="importe" type="number" step="0.01" inputmode="decimal" placeholder="0.00 €" style="height:70px!important;font-weight:700" />
       <textarea id="descripcion" maxlength="200" placeholder="Nota..." style="min-height:100px"></textarea>
 
-      <button onclick="guardar()" style="background:var(--gold-gradient);color:#000;height:70px;width:100%;font-size:22px;margin-top:10px;border:none;font-weight:700;border-radius:16px">GUARDAR</button>
+      <button onclick="guardar()"
+              style="background:var(--gold-gradient);color:#000;height:70px;width:100%;font-size:22px;margin-top:10px;border:none;font-weight:700;border-radius:16px">
+        GUARDAR
+      </button>
+
       <div id="btnEliminarRegistro" class="hidden">
-        <button onclick="eliminarRegistroActual()" style="background:var(--danger);color:#fff;height:60px;width:100%;font-size:18px;margin-top:10px;border:none;font-weight:700;border-radius:16px">ELIMINAR</button>
+        <button onclick="eliminarRegistroActual()"
+                style="background:var(--danger);color:#fff;height:60px;width:100%;font-size:18px;margin-top:10px;border:none;font-weight:700;border-radius:16px">
+          ELIMINAR
+        </button>
       </div>
-      <button onclick="volver()" class="btn-cancel-plate">CANCELAR</button>
+
+      <button onclick="volver()"
+              style="background:transparent;color:#94a3b8;width:100%;margin-top:15px;border:none;font-size:16px">
+        CANCELAR
+      </button>
     </div>
   </div>
 
-  <!-- JS (utils primero) -->
-  <script src="./js/utils.js"></script>
-  <script src="./js/main.js"></script>
+  <!-- Scripts -->
+  <script src="./main.js"></script>
+
+  <!-- SW (PWA) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.error("SW ERROR:", err));
+      });
+    }
+  </script>
 </body>
 </html>
