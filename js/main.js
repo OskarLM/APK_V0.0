@@ -596,7 +596,11 @@ const abrirFormulario = (id = null) => {
 const guardar = () => {
   const ids = ["editId","origen","categoria","subcategoria","fecha","descripcion","importe"];
   // FIX compatible (evita Unexpected token '.')
-  const v = ids.reduce((acc,id)=>({ ...acc, (document.getElementById(id) ? document.getElementById(id).value : "") }),{});
+  // ✅ Correcto: clave computada [id] + compatibilidad (sin optional chaining)
+const v = ids.reduce((acc,id)=>({ 
+  ...acc, 
+  [id]: (document.getElementById(id) ? document.getElementById(id).value : "") 
+}),{});
   const imp = parseFloat(v.importe);
   if (!v.origen || !v.categoria || !v.subcategoria || isNaN(imp)) return alert("Faltan datos");
 
