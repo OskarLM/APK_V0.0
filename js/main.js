@@ -75,7 +75,7 @@ const buildCanonIndex = (preferida=[], secundaria=[]) => {
   preferida.forEach(add); secundaria.forEach(add);
   return map;
 };
-// Escape HTML
+// Escape HTML para pintar strings dentro de templates
 function esc(s){
   const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
   return (s ?? '').toString().replace(/[&<>"']/g, ch => map[ch]);
@@ -256,6 +256,7 @@ function mostrar() {
   else bD.style.color = "var(--electric-blue)";
 
   // === FOOTER DINÁMICO (3 botones .plus en el grid) ===
+  const footerRow = document.querySelector(".footer-row");
   const btnLeft  = document.querySelector(".footer-row .plus:nth-child(1)");
   const btnCenter= document.querySelector(".footer-row .plus:nth-child(2)");
   const btnRight = document.querySelector(".footer-row .plus:nth-child(3)");
@@ -264,45 +265,57 @@ function mostrar() {
 
   function aplicarEstadoCasa(){ if (btnCenter) btnCenter.classList.toggle("active", !!hideCasa); }
 
+  // Limpieza de clases/eventos y reset de posicionamiento
   [btnLeft, btnCenter, btnRight].forEach(b=>{
     if (!b) return;
-    b.onclick = null; b.style.opacity="1";
+    b.onclick = null;
     b.classList.remove("plus-like","btn-house-anim","active");
+    b.style.opacity = "1";
   });
+  layoutFooterReset(btnLeft, btnCenter, btnRight);
 
   if (modo === "graficos") {
     // ← Atrás
     if (btnLeft){ btnLeft.innerHTML = iconBack(); btnLeft.onclick = () => setModo("lista"); }
-    // ○ Casa (centro)
+    // ○ Casa
     if (btnCenter){
       btnCenter.innerHTML = iconCasa();
       btnCenter.classList.add("btn-house-anim");
       btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); };
       aplicarEstadoCasa();
     }
-    // → Gráficos 2 (derecha)
+    // → G2
     if (btnRight){ btnRight.innerHTML = iconGraph2(); btnRight.onclick = () => setModo("graficos2"); }
 
   } else if (modo === "graficos2") {
     // ← Atrás
     if (btnLeft){ btnLeft.innerHTML = iconBack(); btnLeft.onclick = () => setModo("graficos"); }
-    // ○ Casa (centro)
+    // ○ Casa
     if (btnCenter){
       btnCenter.innerHTML = iconCasa();
       btnCenter.classList.add("btn-house-anim");
       btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); };
       aplicarEstadoCasa();
     }
-    // → Vacío (sin +)
+    // → vacío
     if (btnRight){ btnRight.innerHTML = ""; btnRight.style.opacity = "0"; btnRight.onclick = null; }
 
   } else { // LISTA
-    // ← Botón “Gráficos” con estética de “+”
+    // ← Botón “Gráficos” con estética del “+”
     if (btnLeft){ btnLeft.innerHTML = iconBars(); btnLeft.classList.add("plus-like"); btnLeft.onclick = () => setModo("graficos"); }
     // ○ +
     if (btnCenter){ btnCenter.innerHTML = "+"; btnCenter.onclick = () => abrirFormulario(); }
     // → vacío
     if (btnRight){ btnRight.innerHTML = ""; btnRight.onclick = null; }
+  }
+
+  // === Aplicar layout SOLO aquí (después de configurar los botones) ===
+  if (modo === "graficos") {
+    layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
+  } else if (modo === "graficos2") {
+    layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
+  } else {
+    layoutFooterReset(btnLeft, btnCenter, btnRight);
   }
 
   // Render contenido
@@ -333,6 +346,82 @@ function mostrar() {
   ensureBackupIndicator();
   updateBackupIndicator();
 }
+
+/* ==========================
+   LAYOUT de los botones del footer (Gráficos)
+========================== */
+function layoutFooterReset(btnLeft, btnCenter, btnRight){
+  [btnLeft, btnCenter, btnRight].forEach(b=>{
+    if (!b) return;
+    b.style.position = "";
+    b.style.left = "";
+    b.style.right = "";
+    b.style.transform = "";
+    b.style.opacity = "1";
+  });
+}
+
+function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
+  if (!container || !btnLeft || !btnCenter || !btnRight) return;
+  const W = container.clientWidth || container.offsetWidth || 0;
+  const SIZE = 65;      // diámetro del .plus en tu CSS
+  const PADDING = 20;   // margen lateral izq/dcha
+
+  const leftX = PADDING;                      // Atrás (izq)
+  const g2X   = (W / 2) - (SIZE / 2);         // G2 (centro exacto)
+  const casaX = Math.round((leftX + g2X) / 2);// Casa (a mitad: ≈25%)
+
+  [btnLeft, btnCenter, btnRight].forEach(b => { b.style.position = "absolute"; });
+
+  btnLeft.style.left = `${leftX}px`;
+  btnLeft.style.transform = "translateX(0)";
+
+  btnCenter.style.left = `${casaX}px`;
+  btnCenter.style.transform = "translateX(0)";
+
+  btnRight.style.left = `${g2X}px`;
+  btnRight.style.transform = "translateX(0)";
+  btnRight.style.opacity = "1";
+}
+
+function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
+  if (!container || !btnLeft || !btnCenter || !btnRight) return;
+  const W = container.clientWidth || container.offsetWidth || 0;
+  const SIZE = 65;
+  const PADDING = 20;
+
+  const leftX = PADDING;                      // Atrás (izq)
+  const g2X   = (W / 2) - (SIZE / 2);         // Centro virtual p/ calcular 25%
+  const casaX = Math.round((leftX + g2X) / 2);// Casa (mismo 25% que en G1)
+
+  [btnLeft, btnCenter, btnRight].forEach(b => { b.style.position = "absolute"; });
+
+  btnLeft.style.left = `${leftX}px`;
+  btnLeft.style.transform = "translateX(0)";
+
+  btnCenter.style.left = `${casaX}px`;
+  btnCenter.style.transform = "translateX(0)";
+
+  btnRight.style.opacity = "0";
+  btnRight.style.left = `-9999px`;
+  btnRight.style.transform = "translateX(0)";
+}
+
+// Reaplicar layout si cambia el tamaño de ventana/orientación
+window.addEventListener('resize', ()=>{
+  const movDiv = document.getElementById("movimientos");
+  if (!movDiv) return;
+  const modo = movDiv.dataset.modo || "lista";
+  if (modo !== "graficos" && modo !== "graficos2") return;
+
+  const footerRow = document.querySelector(".footer-row");
+  const btnLeft  = document.querySelector(".footer-row .plus:nth-child(1)");
+  const btnCenter= document.querySelector(".footer-row .plus:nth-child(2)");
+  const btnRight = document.querySelector(".footer-row .plus:nth-child(3)");
+
+  if (modo === "graficos") layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
+  else layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
+});
 
 /* ==========================
    GRÁFICOS 1: CATEGORÍAS ↔ SUBCATEGORÍAS (Opción C) + DRILL-DOWN
@@ -806,7 +895,7 @@ const exportarCSV = () => {
   const csv = [headers, ...rows].join("\n");
   const hoy = new Date(), dd=String(hoy.getDate()).padStart(2,"0"), mm=String(hoy.getMonth()+1).padStart(2,"0"), yyyy=hoy.getFullYear();
   const fileName = `mis_gastos_${dd}${mm}${yyyy}.csv`;
-  const blob = new Blob([csv], { type: "textharset=utf-8;" });
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=fileName;
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 };
@@ -973,7 +1062,7 @@ window.eliminarRegistroActual = function(){
 };
 
 /* ==========================
-   BACKUPS (cifrado con el PIN, rotativo, auto-descarga, OneDrive)
+   BACKUPS (cifradol PIN, rotativo, auto-descarga, OneDrive)
 ========================== */
 function hexToBytes(hex){ const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.slice(i,i+2),16)); return new Uint8Array(a); }
 function bytesToBase64(bytes){ if (typeof btoa==='function'){ let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin); } else { return Buffer.from(bytes).toString('base64'); } }
@@ -986,7 +1075,7 @@ async function getAesKeyFromPin(){
   return await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt','decrypt']);
 }
 function buildBackupObject(){
-  return { meta:{ createdAt:new Date().toISOString(), app:"mis-gastos", version:"V1.0.24" },
+  return { meta:{ createdAt:new Date().toISOString(), app:"mis-gastos", version:"V1.0.26" },
            datos:{ movimientos, catExtra, subMaestra } };
 }
 async function encryptBackup(obj){
