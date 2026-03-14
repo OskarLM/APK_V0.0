@@ -182,3 +182,34 @@ input,select,textarea{width:100%;padding:12px;margin:8px 0;font-size:13px;border
   opacity:1;
   transform:translateX(-50%) translateY(0);
 }
+/* ===== Indicador "última copia" en la topbar ===== */
+.backup-indicator{
+  display:inline-flex; align-items:center; gap:6px;
+  margin-left:10px; padding:4px 8px; border-radius:10px;
+  border:1px solid rgba(212,175,55,.35); color:var(--primary);
+  font-size:12px; background:rgba(0,0,0,.35);
+}
+.backup-indicator .dot{
+  width:8px; height:8px; border-radius:50%; background:var(--success);
+}
+.backup-indicator.stale .dot{ background:var(--warning); }
+.backup-indicator.old   .dot{ background:var(--danger); }
+
+/* ===== Gráficos 2 como columnas (con animación y tooltip) ===== */
+.g2-bar{
+  position:absolute; left:50%; width:14px; transform:translateX(-50%);
+  border-radius:3px; box-shadow:0 1px 4px rgba(0,0,0,.35);
+  height:0; transition: height .45s ease, background-color .25s ease;
+}
+.g2-bar.pos{ bottom:50%; }  /* positivos: crece hacia ARRIBA */
+.g2-bar.neg{ top:50%; }     /* negativos: crece hacia ABAJO */
+
+.g2-tip{
+  position:absolute; left:50%; transform:translateX(-50%) translateY(8px);
+  background:#0b0f1a; border:1px solid var(--primary); color:#fff;
+  font-size:11px; padding:6px 8px; border-radius:8px; white-space:nowrap;
+  opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease; z-index:2;
+}
+.g2-tip.tip-pos{ bottom:calc(50% + 6px); }
+.g2-tip.tip-neg{ top:calc(50% + 6px); }
+.g2-col.show-tip .g2-tip{ opacity:1; transform:translateX(-50%) translateY(0); }
