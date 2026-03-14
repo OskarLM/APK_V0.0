@@ -239,6 +239,7 @@ function mostrar() {
 
   filtradosGlobal.forEach(m => t += m.imp);
 
+  // Color del balance (top-bar)
   const factor = (fs[0] === "TODOS") ? 12 : 1;
   const bD = document.getElementById("balance");
   bD.innerText = t.toFixed(2) + " €";
@@ -247,7 +248,7 @@ function mostrar() {
   else if (t <= (1400 * factor)) bD.style.color = "var(--success)";
   else bD.style.color = "var(--electric-blue)";
 
-  // === V1.0: footer dinámico ===
+  // Footer dinámico
   const btnLeft  = document.querySelector(".footer-row .plus:nth-child(1)");
   const btnCenter= document.querySelector(".footer-row .plus:nth-child(2)");
   if (btnLeft)  btnLeft.onclick = null;
@@ -262,13 +263,13 @@ function mostrar() {
       btnLeft.onclick = () => setModo("lista");
     }
     if (btnCenter){
-      btnCenter.innerHTML = iconGraph2(); // cambia + por “Gráficos 2”
+      btnCenter.innerHTML = iconGraph2();
       btnCenter.setAttribute("aria-label","Gráficos 2");
       btnCenter.onclick = () => setModo("graficos2");
     }
   } else if (modo === "graficos2") {
     if (btnLeft){
-      btnLeft.innerHTML = iconBack(); // volver a gráficos
+      btnLeft.innerHTML = iconBack();
       btnLeft.setAttribute("aria-label","Volver a gráficos");
       btnLeft.onclick = () => setModo("graficos");
     }
@@ -290,11 +291,10 @@ function mostrar() {
     }
   }
 
-  // === Render
+  // Render
+  const listaDiv = document.getElementById("lista");
   if (modo === "graficos" || modo === "graficos2") {
-    const listaDiv = document.getElementById("lista");
-
-    // Toolbar "Casa" arriba del gráfico
+    // Toolbar "Casa"
     const toolbarHTML = `
       <div style="display:flex; gap:12px; align-items:center; justify-content:center; margin:6px 0 14px 0;">
         <button class="btn-house ${hideCasa ? 'active' : ''}" onclick="toggleCasa()" aria-label="Mostrar/Ocultar casa" title="Casa">
@@ -305,13 +305,13 @@ function mostrar() {
     listaDiv.innerHTML = toolbarHTML;
 
     if (modo === "graficos") {
-      renderizarBarrasGraficos(factor);
+      renderizarBarrasGraficos((fs[0] === "TODOS") ? 12 : 1);
     } else {
-      renderizarGraficos2();
+      renderizarGraficos2(); // columnas con animación + tooltip
     }
   } else {
     // LISTA
-    document.getElementById("lista").innerHTML = filtradosGlobal
+    listaDiv.innerHTML = filtradosGlobal
       .slice(0, registrosVisibles)
       .map(m => `
       <div class='card' onclick="abrirFormulario('${m.id}')" style="border-left-color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">
@@ -322,12 +322,16 @@ function mostrar() {
       </div>`).join("");
     document.getElementById("loader").style.display = "none";
   }
+
+  // Refrescar indicador de copia
+  ensureBackupIndicator();
+  updateBackupIndicator();
 }
 
 const renderizarBarrasGraficos = (f) => {
   const lista = document.getElementById("lista");
 
-  // V1.0: aplicar filtro "Casa"
+  // Filtro "Casa"
   let fuente = filtradosGlobal.slice();
   if (hideCasa) fuente = fuente.filter(m => !isCasaCategory(m.c));
 
@@ -343,7 +347,7 @@ const renderizarBarrasGraficos = (f) => {
     <span style="color:var(--warning)">${500*f}€</span>
     <span style="color:var(--danger)">+</span>
   </div>`;
-  lista.innerHTML = html + Object.entries(totales).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>{
+  lista.innerHTML += html + Object.entries(totales).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>{
     const esCasa = cat.toLowerCase().includes("compra casa");
     const t1 = Math.min(val, 50*f),
           t2 = val > 50*f ? Math.min(val - 50*f ,150*f) : 0,
@@ -366,38 +370,41 @@ const renderizarBarrasGraficos = (f) => {
   }).join("");
 };
 
+/* === GRÁFICOS 2 – columnas, animación, tooltip, y colores por UMBRALES DE BALANCE ===
+   t < 0 → rojo
+   0..250 → naranja
+   250.01..750 → verde
+   > 750 → azul eléctrico
+*/
 function renderizarGraficos2() {
   const lista = document.getElementById("lista");
 
-  // Limpia un render previo (si lo hubiera) dejando la toolbar "Casa"
+  // Limpia render previo de Gráficos 2 dejando toolbar "Casa"
   const oldChart = lista.querySelector('.g2-wrap');
   if (oldChart) oldChart.remove();
 
-  // 1) Filtros: usar Ori/Cat/Sub; ignorar Mes/Año para 13 meses siempre
   const fs = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"]
     .map(id => document.getElementById(id).value);
 
-  // 2) Últimos 13 meses
+  // Últimos 13 meses
   const hoy = new Date();
   const meses = [];
   for (let i = 12; i >= 0; i--) {
     const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; // YYYY-MM
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
     meses.push({ d, key });
   }
 
-  // 3) Base filtrada por Ori/Cat/Sub + “Casa”
+  // Base filtrada + "Casa"
   const filtraOtros = (m) => {
     const cC = fs[2] === "TODAS" || m.c === fs[2];
     const cS = fs[3] === "TODAS" || m.s === fs[3];
     const cO = fs[4] === "TODOS" || m.o === fs[4];
     return cC && cS && cO;
   };
+  const base = (hideCasa ? movimientos.filter(mm => !isCasaCategory(mm.c)) : movimientos).filter(filtraOtros);
 
-  const base = (hideCasa ? movimientos.filter(mm => !isCasaCategory(mm.c)) : movimientos)
-    .filter(filtraOtros);
-
-  // 4) Suma mensual (YYYY-MM → total)
+  // Sumatorio mensual
   const sumaMes = new Map();
   for (const mov of base) {
     const k = (mov.f || "").slice(0,7);
@@ -405,21 +412,18 @@ function renderizarGraficos2() {
     sumaMes.set(k, (sumaMes.get(k) || 0) + (Number(mov.imp) || 0));
   }
 
-  // 5) Escala y helpers
+  // Escala y helpers
   const valores = meses.map(m => sumaMes.get(m.key) || 0);
   const maxAbs = Math.max(...valores.map(v => Math.abs(v)), 1);
+  const alto   = 180, mitad = alto / 2;
+  const maxDespl = Math.max(mitad - 8, 40);
+  const minBar = 4;
 
-  const alto   = 180;                 // coincide con .g2-chart { height:180px }
-  const mitad  = alto / 2;            // baseline visual
-  const maxDespl = Math.max(mitad - 8, 40);   // margen para redondeos y labels
-  const minBar = 4;                   // altura mínima visible
-
-  // === COLORES ALINEADOS CON TUS NUEVOS UMBRALES (BALANCE) ===
-  // t < 0 → danger | 0..250 → warning | 250.01..750 → success | >750 → electric-blue
+  // Color por umbrales de BALANCE (nuevos criterios)
   const colorPorMes = (t) => {
-    if (t < 0) return "var(--danger)";
-    if (t <= 250) return "var(--warning)";
-    if (t <= 750) return "var(--success)";
+    if (t < 0)  return "var(--danger)";
+    if (t <= 250)  return "var(--warning)";
+    if (t <= 750)  return "var(--success)";
     return "var(--electric-blue)";
   };
 
@@ -431,7 +435,6 @@ function renderizarGraficos2() {
     return `${sign}${abs} €`;
   };
 
-  // 6) Render: columnas + tooltip
   let html = `
     <div class="g2-wrap">
       <div class="g2-chart">
@@ -439,18 +442,15 @@ function renderizarGraficos2() {
   `;
 
   for (const m of meses){
-    const v   = sumaMes.get(m.key) || 0;       // valor del mes (balance mensual)
+    const v   = sumaMes.get(m.key) || 0;
     const abs = Math.abs(v);
-    const h   = Math.max(minBar, (abs / maxAbs) * maxDespl); // altura de la barra
+    const h   = Math.max(minBar, (abs / maxAbs) * maxDespl);
     const pos = v >= 0;
 
-    // Color según los nuevos criterios
     const color = colorPorMes(v);
-
     const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
     const label  = mesesCorta[mesIdx];
 
-    // Tooltip: arriba de baseline para positivos, abajo para negativos
     const tipClass = pos ? 'tip-pos' : 'tip-neg';
     const tipText  = `${label} ${m.d.getFullYear()}: ${fmtEuro(v)}`;
 
@@ -464,11 +464,10 @@ function renderizarGraficos2() {
   }
 
   html += `</div></div>`;
-
-  // Añadimos debajo de la toolbar "Casa" (que ya pintó mostrar())
+  // Añadir debajo de la toolbar "Casa"
   lista.insertAdjacentHTML('beforeend', html);
 
-  // 7) Animación de altura: de 0px → target (data-h)
+  // Animación
   requestAnimationFrame(()=>{
     lista.querySelectorAll('.g2-chart .g2-bar').forEach(el=>{
       const target = parseFloat(el.dataset.h) || 0;
@@ -476,10 +475,9 @@ function renderizarGraficos2() {
     });
   });
 
-  // 8) Tooltip táctil/click: alterna la visibilidad y cierra los demás
+  // Tooltip táctil
   const chart = lista.querySelector('.g2-chart');
   if (!chart) return;
-
   if (!chart.dataset.tipBound){
     chart.addEventListener('click', (ev)=>{
       const col = ev.target.closest('.g2-col');
@@ -487,13 +485,9 @@ function renderizarGraficos2() {
       chart.querySelectorAll('.g2-col.show-tip').forEach(c => { if (c!==col) c.classList.remove('show-tip'); });
       col.classList.toggle('show-tip');
     });
-
     document.addEventListener('click', (ev)=>{
-      if (!chart.contains(ev.target)) {
-        chart.querySelectorAll('.g2-col.show-tip').forEach(c => c.classList.remove('show-tip'));
-      }
+      if (!chart.contains(ev.target)) chart.querySelectorAll('.g2-col.show-tip').forEach(c => c.classList.remove('show-tip'));
     });
-
     chart.dataset.tipBound = '1';
   }
 }
@@ -564,8 +558,8 @@ const abrirFormulario = (id = null) => {
 
 const guardar = () => {
   const ids = ["editId","origen","categoria","subcategoria","fecha","descripcion","importe"];
-  // ✅ FIX: clave computada [id] (evita "Unexpected token '.'")
-  const v = ids.reduce((acc,id)=>({ ...acc, [id]: document.getElementById(id)?.value }),{});
+  // FIX: clave computada [id]
+  const v = ids.reduce((acc,id)=>({ ...acc, document.getElementById(id)?.value }),{});
   const imp = parseFloat(v.importe);
   if (!v.origen || !v.categoria || !v.subcategoria || isNaN(imp)) return alert("Faltan datos");
 
@@ -585,6 +579,7 @@ const guardar = () => {
     if (idx !== -1) movimientos[idx] = m;
   } else {
     movimientos.push(m);
+    // Disparador de backup cada 15 (rotativo local + descarga)
     if (movimientos.length % 15 === 0) ejecutarBackupRotativo();
   }
   localStorage.setItem('movimientos', JSON.stringify(movimientos));
@@ -730,7 +725,7 @@ function normalizarListasExistentes(){
 }
 
 /* ==========================
-   INIT
+   INIT + SCROLL + CSV
 ========================== */
 const init = () => {
   const fM = document.getElementById("filtroMes"),
@@ -750,7 +745,15 @@ const init = () => {
   mostrar();
 };
 
-const ejecutarBackupRotativo = () => { /* opcional */ };
+const ejecutarBackupRotativo = async () => {
+  try{
+    const enc = await createAndStoreLocalBackup();   // rotativo 1..5 (cifrado)
+    await downloadEncryptedBackup(enc, 'auto_backup'); // descarga automática (cifrado)
+  }catch(e){
+    console.error("Backup automático falló:", e);
+  }
+};
+
 const resetTotal = () => confirm("¿BORRAR TODO?") && (localStorage.clear(), location.reload());
 
 window.onscroll = () => {
@@ -774,11 +777,6 @@ const exportarCSV = () => {
     const [y,m,d] = (iso || "").split("-");
     return (y && m && d) ? `${d}/${m}/${y}` : (iso || "");
   };
-  const toEuro = (n) => {
-    const val = (typeof n === "number" ? n : parseFloat(n || 0));
-    const s = Number.isFinite(val) ? val.toString() : "0";
-    return s.includes(".") ? s.replace(".", ",") : s;
-  };
   const csvCell = (v) => {
     let t = (v ?? "").toString().replace(/\r?\n/g, "⏎");
     if (/[;"\n]/.test(t)) t = '"' + t.replace(/"/g,'""') + '"';
@@ -786,14 +784,8 @@ const exportarCSV = () => {
   };
   const headers = ["Fecha","Origen","Categoria","Subcategoria","Importe","Descripcion"].join(SEP);
   const rows = movimientos.map(m =>
-    [
-      toESDate(m.f),
-      m.o || "",
-      m.c || "",
-      m.s || "",
-      (Number(m.imp)||0),
-      (m.d ?? "").trim()
-    ].map(csvCell).join(SEP)
+    [toESDate(m.f), m.o||"", m.c||"", m.s||"", (Number(m.imp)||0), (m.d??"").trim()]
+      .map(csvCell).join(SEP)
   );
   const csv = [headers, ...rows].join("\n");
   const hoy = new Date();
@@ -801,6 +793,7 @@ const exportarCSV = () => {
   const mm = String(hoy.getMonth()+1).padStart(2,"0");
   const yyyy = hoy.getFullYear();
   const fileName = `mis_gastos_${dd}${mm}${yyyy}.csv`;
+
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -907,7 +900,7 @@ const importarCSV = (e) => {
         if (catIndexCanon.has(keyC)) c = catIndexCanon.get(keyC);
         if (subIndexCanon.has(keyS)) s = subIndexCanon.get(keyS);
 
-        let imp = parseEuroNumber(rawImp);
+        let imp = parseFloat(parseEuroNumber(rawImp));
         if (o === 'Gasto' && imp > 0) imp = -Math.abs(imp);
         if (o !== 'Gasto' && imp < 0) imp = Math.abs(imp);
 
@@ -917,6 +910,7 @@ const importarCSV = (e) => {
         nuevos.push(mov);
       }
 
+      // Añadir posibles categorías/subcategorías nuevas
       const addIfNewCanon = (list, storeKey, value) => {
         const k = canonicalizeLabel(value);
         const exists = list.some(v => canonicalizeLabel(v) === k);
@@ -952,7 +946,7 @@ const importarCSV = (e) => {
 };
 
 /* ==========================
-   POPUP PREMIUM (entrega valor a manejarNuevo por dataset)
+   POPUP PREMIUM / POPUP NÓMINA
 ========================== */
 (function(){
   const lanzarPopupPremium = (el,tipo) => {
@@ -984,9 +978,6 @@ const importarCSV = (e) => {
   },true);
 })();
 
-/* ==========================
-   POPUP NÓMINA
-========================== */
 (function(){
   const lanzarPopupNomina = () => {
     const overlay=document.createElement('div'); overlay.className='nomina-overlay';
@@ -1034,6 +1025,230 @@ window.eliminarRegistroActual = function(){
 };
 
 /* ==========================
+   BACKUPS (cifrado con el PIN)
+========================== */
+// Helpers base64/hex
+function hexToBytes(hex){
+  const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.slice(i,i+2),16));
+  return new Uint8Array(a);
+}
+function bytesToBase64(bytes){
+  if (typeof btoa === 'function'){
+    let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b));
+    return btoa(bin);
+  } else {
+    return Buffer.from(bytes).toString('base64');
+  }
+}
+function base64ToBytes(b64){
+  if (typeof atob === 'function'){
+    const bin = atob(b64); const out = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+    return out;
+  } else {
+    return new Uint8Array(Buffer.from(b64,'base64'));
+  }
+}
+
+async function getAesKeyFromPin(){
+  await ensureDefaultPinHash();
+  const hex = localStorage.getItem(PIN_STORAGE_KEY); // hash hex del PIN
+  const keyBytes = hexToBytes(hex);                  // 32 bytes
+  return await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt','decrypt']);
+}
+
+function buildBackupObject(){
+  return {
+    meta:{
+      createdAt: new Date().toISOString(),
+      app: "mis-gastos",
+      version: "V1.0.21",
+    },
+    datos:{
+      movimientos,
+      catExtra,
+      subMaestra
+    }
+  };
+}
+
+async function encryptBackup(obj){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await getAesKeyFromPin();
+  const data = new TextEncoder().encode(JSON.stringify(obj));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, data);
+  return { v:1, alg:'AES-GCM', iv: bytesToBase64(iv), ct: bytesToBase64(new Uint8Array(ct)) };
+}
+
+async function decryptBackup(payload){
+  const key = await getAesKeyFromPin();
+  const iv = base64ToBytes(payload.iv);
+  const ct = base64ToBytes(payload.ct);
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+// Rotativo local backup_1 .. backup_5
+async function createAndStoreLocalBackup(){
+  const enc = await encryptBackup(buildBackupObject());
+  const idx = ((parseInt(localStorage.getItem('backup_idx')||'0',10)) % 5) + 1;
+  localStorage.setItem(`backup_${idx}`, JSON.stringify(enc));
+  localStorage.setItem('backup_idx', String(idx));
+  localStorage.setItem('backup_last_ts', String(Date.now()));
+  updateBackupIndicator();
+  return enc;
+}
+
+// Descarga cifrada (auto o manual)
+async function downloadEncryptedBackup(enc, prefix='auto_backup'){
+  const d = new Date();
+  const YYYY = d.getFullYear(), MM = String(d.getMonth()+1).padStart(2,'0'), DD = String(d.getDate()).padStart(2,'0');
+  const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
+  const filename = `${prefix}_${YYYY}-${MM}-${DD}_${hh}-${mm}.json`;
+  const blob = new Blob([JSON.stringify(enc, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Botón: Guardar copia en OneDrive (selección de carpeta)
+async function guardarCopiaEnOneDrive(){
+  try{
+    const enc = await encryptBackup(buildBackupObject());
+    const d = new Date();
+    const YYYY = d.getFullYear(), MM = String(d.getMonth()+1).padStart(2,'0'), DD = String(d.getDate()).padStart(2,'0');
+    const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
+    const filename = `backup_onedrive_${YYYY}-${MM}-${DD}_${hh}-${mm}.json`;
+
+    const blob = new Blob([JSON.stringify(enc, null, 2)], {type:'application/json'});
+
+    if (window.showSaveFilePicker){
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: "JSON Backup", accept: {"application/json":[".json"]}}]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob); await writable.close();
+      // Marca como backup reciente
+      localStorage.setItem('backup_last_ts', String(Date.now()));
+      updateBackupIndicator();
+      alert("📁 Copia guardada. Elige OneDrive en el selector para que se sincronice.");
+    } else {
+      // fallback descarga
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      localStorage.setItem('backup_last_ts', String(Date.now()));
+      updateBackupIndicator();
+      alert("Se ha descargado el backup (tu navegador no soporta selección de carpeta).");
+    }
+  }catch(e){
+    console.error(e);
+    alert("No se pudo guardar la copia de seguridad.");
+  }
+}
+
+// Botón: Restaurar copia de OneDrive (selector de archivo)
+async function restaurarCopiaDeOneDrive(){
+  try{
+    // showOpenFilePicker si existe
+    let file = null;
+    if (window.showOpenFilePicker){
+      const [handle] = await window.showOpenFilePicker({
+        multiple:false,
+        types:[{ description:"JSON Backup", accept:{"application/json":[".json"]} }]
+      });
+      file = await handle.getFile();
+    } else {
+      // fallback input hidden
+      file = await new Promise((resolve,reject)=>{
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = 'application/json';
+        inp.onchange = () => resolve(inp.files[0]);
+        inp.click();
+        setTimeout(()=>{ if(!inp.files || !inp.files[0]) reject(new Error("No file")); }, 20000);
+      });
+    }
+    const text = await file.text();
+    const payload = JSON.parse(text);
+
+    // Detectar cifrado
+    let data;
+    if (payload && payload.ct && payload.iv){
+      data = await decryptBackup(payload);
+    } else {
+      // Copia no cifrada (compatibilidad retro)
+      data = payload;
+    }
+
+    if (!data || !data.datos) throw new Error("Formato de copia inválido");
+
+    // Restaurar
+    movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
+    catExtra    = Array.isArray(data.datos.catExtra)    ? data.datos.catExtra    : [];
+    subMaestra  = Array.isArray(data.datos.subMaestra)  ? data.datos.subMaestra  : [];
+
+    localStorage.setItem('movimientos', JSON.stringify(movimientos));
+    localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+    localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator();
+
+    actualizarListas(); resetPagina(); mostrar();
+    alert("✅ Copia restaurada correctamente.");
+  }catch(e){
+    if (e && e.name === "AbortError") return;
+    console.error(e);
+    alert("No se pudo restaurar la copia. ¿PIN correcto? ¿Archivo válido?");
+  }
+}
+
+/* ===== Indicador visual de “Última copia” ===== */
+function ensureBackupIndicator(){
+  const top = document.querySelector('.topbar');
+  if (!top) return;
+  if (!document.getElementById('backupIndicator')){
+    const span = document.createElement('span');
+    span.id = 'backupIndicator';
+    span.className = 'backup-indicator';
+    span.innerHTML = `<span class="dot"></span><span class="txt">Última copia: —</span>`;
+    top.appendChild(span);
+  }
+}
+
+function humanAgo(ts){
+  if (!ts) return "—";
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff/1000);
+  if (s < 60) return `hace ${s}s`;
+  const m = Math.floor(s/60);
+  if (m < 60) return `hace ${m}m`;
+  const h = Math.floor(m/60);
+  return `hace ${h}h`;
+}
+
+function updateBackupIndicator(){
+  const el = document.getElementById('backupIndicator');
+  if (!el) return;
+  const ts = parseInt(localStorage.getItem('backup_last_ts')||'0',10);
+  const txt = el.querySelector('.txt');
+  txt.textContent = `Última copia: ${humanAgo(ts)}`;
+  el.classList.remove('stale','old');
+  if (!ts) el.classList.add('old');
+  else {
+    const mins = (Date.now()-ts)/60000;
+    if (mins > 1440) el.classList.add('old');     // > 24 h
+    else if (mins > 60) el.classList.add('stale'); // > 1 h
+  }
+}
+setInterval(updateBackupIndicator, 60000);
+
+/* ==========================
    REGISTRO SERVICE WORKER (PWA)
 ========================== */
 if ('serviceWorker' in navigator) {
@@ -1065,6 +1280,10 @@ window.resetTotal = resetTotal;
 window.init = init;
 window.actualizarListas = actualizarListas;
 
-// V1.0
+// V1.x
 window.setModo = setModo;
 window.toggleCasa = toggleCasa;
+
+// Backups
+window.guardarCopiaEnOneDrive = guardarCopiaEnOneDrive;
+window.restaurarCopiaDeOneDrive = restaurarCopiaDeOneDrive;
