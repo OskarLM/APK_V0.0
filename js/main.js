@@ -365,11 +365,12 @@ const renderizarBarrasGraficos = (f) => {
   }).join("");
 };
 
-function renderizarGraficos2(){
+function renderizarGraficos2() {
   const lista = document.getElementById("lista");
 
   // 1) Filtros: usar Ori/Cat/Sub; ignorar Mes/Año para 13 meses siempre
-  const fs = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"].map(id => document.getElementById(id).value);
+  const fs = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"]
+    .map(id => document.getElementById(id).value);
 
   // 2) Últimos 13 meses
   const hoy = new Date();
@@ -379,6 +380,83 @@ function renderizarGraficos2(){
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; // YYYY-MM
     meses.push({ d, key });
   }
+
+  // 3) Base filtrada por Ori/Cat/Sub + “Casa”
+  const filtraOtros = (m) => {
+    const cC = fs[2] === "TODAS" || m.c === fs[2];
+    const cS = fs[3] === "TODAS" || m.s === fs[3];
+    const cO = fs[4] === "TODOS" || m.o === fs[4];
+    return cC && cS && cO;
+  };
+
+  const base = (hideCasa ? movimientos.filter(mm => !isCasaCategory(mm.c)) : movimientos)
+    .filter(filtraOtros);
+
+  // 4) Suma mensual (YYYY-MM → total)
+  const sumaMes = new Map();
+  for (const mov of base) {
+    const k = (mov.f || "").slice(0,7);
+    if (!meses.some(x => x.key === k)) continue;
+    sumaMes.set(k, (sumaMes.get(k) || 0) + (Number(mov.imp) || 0));
+  }
+
+  // 5) Preparar escala visual
+  const valores = meses.map(m => sumaMes.get(m.key) || 0);
+  const maxAbs = Math.max(...valores.map(v => Math.abs(v)), 1);
+
+  const alto = 180;
+  const mitad = alto / 2;
+  const maxDespl = Math.max(mitad - 16, 40);
+  const baseTop = mitad - 9; // punto base del cuadrado (18px de alto)
+
+  // === COLORES V1.0 (igual que Gráfico 1) ===
+  const colorPositivo = (v) => {
+    const abs = Math.abs(v);
+    if (abs <= 50)  return "var(--electric-blue)";
+    if (abs <= 200) return "var(--success)";
+    if (abs <= 500) return "var(--warning)";
+    return "var(--danger)";
+  };
+
+  // 6) Render
+  let html = `
+    <h2 style="color:var(--primary);font-size:18px;text-align:center">EVOLUCIÓN (13 MESES)</h2>
+    <div class="g2-wrap">
+      <div class="g2-chart">
+        <div class="g2-baseline"></div>
+  `;
+
+  const mesesCorta = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+  for (const m of meses){
+    const v = sumaMes.get(m.key) || 0;   // valor del mes
+    const sign = v >= 0 ? 1 : -1;        // signo → arriba o abajo
+    const off  = (Math.abs(v) / maxAbs) * maxDespl;
+    const topPx = (baseTop) - (off * sign);
+
+    // === COLOR según signo y umbrales ===
+    const color = (v >= 0)
+      ? colorPositivo(v)
+      : "var(--danger)";     // negativos siempre rojo
+
+    const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
+    const label = mesesCorta[mesIdx];
+
+    html += `
+      <div class="g2-col">
+        <div class="g2-square" style="
+          top:${topPx}px;
+          background:${color};
+        "></div>
+        <div class="g2-label">${label}</div>
+      </div>
+    `;
+  }
+
+  html += `</div></div>`;
+  lista.innerHTML += html;
+}
+
 
   // 3) Base filtrada por Ori/Cat/Sub + “Casa”
   const filtraOtros = (m) => {
