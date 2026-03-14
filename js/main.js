@@ -40,6 +40,13 @@ async function ensureDefaultPinHash() {
 /* ==========================
    UTILIDADES DE NORMALIZACIÓN
 ========================== */
+function esc(s){
+  const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+  return (s ?? '').toString().replace(/[&<>"']/g, ch => map[ch]);
+}
+
+
+
 const normalizeKey = (s) => (s ?? "")
   .toString().trim().toLowerCase()
   .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
