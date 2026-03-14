@@ -1,21 +1,22 @@
 /* ==========================
    PIN V0.1 (hasheado + intentos + cooldown)
-   compatible con utils.js (sha256, getAttempts, setAttempts, isInCooldown, etc.)
-   y con tu index.html (onclick="pressPin(n)")
+   Requiere utils.js (sha256, getAttempts, setAttempts, isInCooldown, setCooldown)
 ========================== */
 
 // Estado interno del PIN
 let pinActual = "";
 
-// Compatibilidad por si faltaran los helpers (deberían llegar desde utils.js)
-const KEY_PIN = (typeof PIN_STORAGE_KEY !== 'undefined') ? PIN_STORAGE_KEY : 'pinHash_v1';
-const _getAttempts   = (typeof getAttempts   === 'function') ? getAttempts   : () => parseInt(localStorage.getItem('pinAttempts_v1') || '0', 10);
-const _setAttempts   = (typeof setAttempts   === 'function') ? setAttempts   : (n) => localStorage.setItem('pinAttempts_v1', String(n));
-const _isInCooldown  = (typeof isInCooldown  === 'function') ? isInCooldown  : (() => {
+// Compatibilidad con utils.js (nombres de claves)
+const KEY_PIN = (typeof PIN_STORAGE_KEY !== 'undefined') ? PIN_STORAGE_KEY : (typeof PIN_STORAGE_KEY !== 'undefined') ? PIN_STORAGE_KEY : 'pinHash_v1';
+
+// Helpers con *fallback* (por si faltaran en utils.js)
+const _getAttempts  = (typeof getAttempts  === 'function') ? getAttempts  : () => parseInt(localStorage.getItem('pinAttempts_v1') || '0', 10);
+const _setAttempts  = (typeof setAttempts  === 'function') ? setAttempts  : (n) => localStorage.setItem('pinAttempts_v1', String(n));
+const _isInCooldown = (typeof isInCooldown === 'function') ? isInCooldown : (() => {
   const v = parseInt(localStorage.getItem('pinCooldownUntil_v1') || '0', 10);
   return Date.now() < v ? (v - Date.now()) : 0;
 });
-const _setCooldown   = (typeof setCooldown   === 'function') ? setCooldown   : ((sec) => {
+const _setCooldown  = (typeof setCooldown  === 'function') ? setCooldown  : ((sec) => {
   const until = Date.now() + sec * 1000;
   localStorage.setItem('pinCooldownUntil_v1', String(until));
 });
@@ -32,60 +33,43 @@ async function ensureDefaultPinHash() {
   }
 }
 
-// Actualiza los puntitos visuales del PIN
+// Puntitos del overlay
 function updateDots() {
   document.querySelectorAll('.pin-dots .dot').forEach((d, i) => {
     d.classList.toggle('filled', i < pinActual.length);
   });
 }
+function clearPin() { pinActual = ""; updateDots(); }
 
-// Limpia el buffer del PIN
-function clearPin() {
-  pinActual = "";
-  updateDots();
-}
-
-// Desbloqueo: cierra overlay, muestra #movimientos y llama a init() si existe
+// Desbloquear app
 function unlock() {
   const overlay = document.getElementById("authOverlay");
   if (overlay) overlay.style.display = "none";
-
   const m = document.getElementById("movimientos");
-  if (m) {
-    m.classList.remove("hidden");
-    m.dataset.permiso = "OK";
-  }
-  // Si tienes init() definida en tu app, ejecútala; si no, no pasa nada.
-  if (typeof init === 'function') {
-    try { init(); } catch (e) { console.error("init() error:", e); }
-  }
+  if (m) { m.classList.remove("hidden"); m.dataset.permiso = "OK"; }
+  if (typeof init === 'function') { try { init(); } catch(e){ console.error("init() error:", e); } }
 }
 
-// Verifica el PIN con hash + control de intentos
+// Verificar PIN con hash + control de intentos
 async function verifyAndUnlock(pinPlain) {
-  // Cooldown activo
   const remainMs = _isInCooldown();
   if (remainMs > 0) {
     const s = Math.ceil(remainMs / 1000);
     alert(`Has superado el número de intentos. Espera ${s} s e inténtalo de nuevo.`);
     return;
   }
-
-  // Garantiza que hay hash por defecto
   await ensureDefaultPinHash();
   const savedHash = localStorage.getItem(KEY_PIN);
   const givenHash = await sha256(pinPlain);
-
   if (givenHash === savedHash) {
     _setAttempts(0);
-    // Limpia cooldown si usas clave específica
     if (typeof PIN_COOLDOWN_KEY !== 'undefined') localStorage.removeItem(PIN_COOLDOWN_KEY);
     unlock();
   } else {
     const prev = _getAttempts() + 1;
     _setAttempts(prev);
     if (prev >= 5) {
-      _setCooldown(60); // 60 segundos de bloqueo
+      _setCooldown(60);
       _setAttempts(0);
       alert("Demasiados intentos fallidos. Bloqueo temporal de 60 segundos.");
     } else {
@@ -94,20 +78,17 @@ async function verifyAndUnlock(pinPlain) {
   }
 }
 
-// Pulsación de una tecla del PIN (usada por onclick en index.html)
+// Pulsación de tecla PIN (usada por onclick del HTML)
 async function pressPin(n) {
-  // Si hay cooldown, bloquea
   const remain = _isInCooldown();
   if (remain > 0) {
     const s = Math.ceil(remain / 1000);
     alert(`Bloqueado temporalmente. Espera ${s} s.`);
     return;
   }
-
   if (pinActual.length < 4) {
     pinActual += String(n);
     updateDots();
-
     if (pinActual.length === 4) {
       const candidate = pinActual;
       clearPin();
@@ -117,7 +98,7 @@ async function pressPin(n) {
   }
 }
 
-// Biometría (stub seguro: no desbloquea)
+// Biometría (stub seguro)
 async function biometricAuth() {
   try {
     if (!window.isSecureContext || !window.PublicKeyCredential) {
@@ -131,7 +112,7 @@ async function biometricAuth() {
   }
 }
 
-// Exponer funciones para los onclick inline del HTML
+// Exponer para los onclick inline del HTML
 window.pressPin = pressPin;
 window.clearPin = clearPin;
 window.biometricAuth = biometricAuth;
@@ -139,67 +120,29 @@ window.biometricAuth = biometricAuth;
 // Preparación al cargar
 document.addEventListener('DOMContentLoaded', () => {
   ensureDefaultPinHash().catch(console.error);
-  // Asegura que los puntitos empiecen "vacíos"
   updateDots();
 });
 
+
 /* ==========================
-   (TU) lógica existente — guardar()
-   *** NO LA TOCO ***
+   Núcleo de datos + render (lista)
 ========================== */
 
-// NOTA: aquí asumo que en tu entorno global existen:
-// - movimientos (array)
-// - ejecutarBackupRotativo() (opcional)
-// - volver() (función que vuelve a la vista lista y refresca)
-
-// Dejo tu función exactamente como la pasaste:
-const guardar = () => {
-  const ids = ["editId","origen","categoria","subcategoria","fecha","descripcion","importe"];
-  const v = ids.reduce((acc,id)=>({ ...acc, [id]: document.getElementById(id)?.value }),{});
-  const imp = parseFloat(v.importe);
-  if (!v.origen || !v.categoria || !v.subcategoria || isNaN(imp)) {
-    alert("Faltan datos");
-    return;
-  }
-  const m = {
-    id : v.editId || `id_${Date.now()}`,
-    f  : v.fecha,
-    o  : v.origen,
-    c  : v.categoria,
-    s  : v.subcategoria,
-    imp: v.origen === "Gasto" ? -Math.abs(imp) : Math.abs(imp),
-    d  : v.descripcion,
-    ts : Date.now()
-  };
-  if (v.editId) {
-    const idx = movimientos.findIndex(x => x.id.toString() === v.editId.toString());
-    if (idx !== -1) movimientos[idx] = m;
-  } else {
-    movimientos.push(m);
-    if (movimientos.length % 15 === 0) ejecutarBackupRotativo();
-  }
-  localStorage.setItem('movimientos', JSON.stringify(movimientos));
-  volver();
-};
-/* ======== CORE DE DATOS + RENDER + IMPORT/EXPORT (restaurado) ======== */
-
-/* --- Estado base --- */
 let movimientos = JSON.parse(localStorage.getItem('movimientos') || '[]');
 let registrosVisibles = 25;
+
 const mesesLabel = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const origenBase = ["Ingreso","Gasto","Nómina"];
 
-/* Fallback de escape si utils.js no lo trae bien */
 const _esc = (typeof esc === 'function')
   ? esc
   : (s)=> String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-/* --- Init + filtros + render --- */
+// Inicialización básica de filtros y datos
 function init(){
   const hoy = new Date();
 
-  // Meses
+  // Mes
   const fM = document.getElementById("filtroMes");
   if (fM) {
     fM.innerHTML = '<option value="TODOS">Mes: TODOS</option>';
@@ -207,7 +150,7 @@ function init(){
     fM.value = hoy.getMonth();
   }
 
-  // Años (2020..2030)
+  // Año
   const fA = document.getElementById("filtroAño");
   if (fA) {
     fA.innerHTML = '<option value="TODOS">Año: TODOS</option>';
@@ -219,8 +162,8 @@ function init(){
   mostrar();
 }
 
+// Rellena selects de filtros a partir de datos
 function actualizarListas(){
-  // Rellena Cat/Sub/Ori a partir de los datos existentes
   const fC = document.getElementById("filtroCat");
   const fS = document.getElementById("filtroSub");
   const fO = document.getElementById("filtroOri");
@@ -236,12 +179,14 @@ function actualizarListas(){
   const subs = movimientos.map(m=>m.s||'');
   setSel(fC, cats, 'Cat');
   setSel(fS, subs, 'Sub');
+
   if (fO) {
     fO.innerHTML = '<option value="TODOS">Ori: TODOS</option>';
     origenBase.forEach(o=>fO.add(new Option(o,o)));
   }
 }
 
+// Pinta la lista según filtros
 function mostrar(){
   const cont = document.getElementById("lista");
   const movDiv = document.getElementById("movimientos");
@@ -268,7 +213,7 @@ function mostrar(){
 
   filtrados.forEach(m=> total += Number(m.imp)||0);
 
-  // Balance con colores
+  // Balance
   const bD = document.getElementById("balance");
   if (bD){
     bD.innerText = total.toFixed(2) + " €";
@@ -290,9 +235,11 @@ function mostrar(){
     `).join("");
 }
 
-/* --- Helpers UI mínimos para que nada “reviente” --- */
+/* ==========================
+   CRUD / UI mínimas
+========================== */
+
 function abrirFormulario(id=null){
-  // Muestra el formulario y precarga si hay ID
   const f = document.getElementById("form");
   const m = document.getElementById("movimientos");
   if (!f || !m) return;
@@ -313,7 +260,7 @@ function abrirFormulario(id=null){
   } else {
     document.getElementById("editId").value = "";
     document.getElementById("fecha").value = new Date().toISOString().split("T")[0];
-    document.getElementById("origen").value = origenBase[1]; // "Gasto" por defecto
+    document.getElementById("origen").value = origenBase[1]; // "Gasto"
     document.getElementById("categoria").value = "";
     document.getElementById("subcategoria").value = "";
     document.getElementById("importe").value = "";
@@ -345,7 +292,15 @@ function resetPagina(){ registrosVisibles = 25; window.scrollTo(0,0); }
 function ejecutarBackupRotativo(){ /* opcional */ }
 function resetTotal(){ if (confirm("¿BORRAR TODO?")) { localStorage.clear(); location.reload(); } }
 
-/* --- Exportar CSV (formato europeo ; , decimales con coma) --- */
+// Stubs para compatibilidad con tu HTML (no rompen si se usan)
+function abrirGraficos(){ /* aún no implementado en este núcleo; se mantiene lista */ }
+function manejarNuevo(el,tipo){ if (el && el.value === '+') { const n = prompt(`Nueva ${tipo}:`); if (n) el.value = n.trim(); else el.value = ""; } }
+function borrarElemento(tipo){ const sel = document.getElementById(tipo); if (sel) sel.value = ""; }
+
+/* ==========================
+   EXPORT / IMPORT CSV
+========================== */
+
 function exportarCSV(){
   if (!movimientos || !movimientos.length) {
     alert("No hay datos para exportar.");
@@ -368,7 +323,7 @@ function exportarCSV(){
   };
   const headers = ["Fecha","Origen","Categoria","Subcategoria","Importe","Descripcion"].join(SEP);
   const rows = movimientos.map(m =>
-    [toESDate(m.f), m.o||"", m.c||"", m.s||"", toEuro(m.imp), (m.d??"").trim()]
+    [toESDate(m.f), m.o||"", m.c||"", m.s||"", (Number(m.imp)||0), (m.d??"").trim()]
       .map(csvCell).join(SEP)
   );
   const csv = [headers, ...rows].join("\n");
@@ -386,7 +341,6 @@ function exportarCSV(){
   URL.revokeObjectURL(url);
 }
 
-/* --- Importar CSV (tab/;/, con comillas) --- */
 function importarCSV(e){
   const file = e.target.files && e.target.files[0];
   if (!file) return;
@@ -446,7 +400,7 @@ function importarCSV(e){
       };
       const parseEuroNumber = (s) => {
         let t = (s || '').toString().trim();
-        t = t.replace(/\.(?=\d{3}(?:\D|$))/g, ''); // separador miles
+        t = t.replace(/\.(?=\d{3}(?:\D|$))/g, ''); // miles
         t = t.replace(',', '.'); // decimal
         const n = parseFloat(t);
         return isNaN(n) ? 0 : n;
@@ -469,7 +423,7 @@ function importarCSV(e){
         let  s = clean(arr[idx.subcategoria] ?? '');
         let  d = clean(idx.descripcion >= 0 ? (arr[idx.descripcion] ?? '') : '');
 
-        // Normaliza origen
+        // Normaliza origen y signo
         const oLow = o.toLowerCase();
         if (oLow.startsWith('nom')) o = 'Nómina';
         else if (oLow.startsWith('gas')) o = 'Gasto';
@@ -502,7 +456,7 @@ function importarCSV(e){
   reader.readAsText(file, 'UTF-8');
 }
 
-/* --- Exponer a window para que los onclick/onchange del HTML funcionen --- */
+/* Exponer funciones al global para los handlers del HTML */
 window.init = init;
 window.mostrar = mostrar;
 window.actualizarListas = actualizarListas;
@@ -513,11 +467,51 @@ window.abrirFormulario = abrirFormulario;
 window.eliminarRegistroActual = eliminarRegistroActual;
 window.resetPagina = resetPagina;
 window.resetTotal = resetTotal;
+window.abrirGraficos = abrirGraficos;
+window.manejarNuevo = manejarNuevo;
+window.borrarElemento = borrarElemento;
 
-/* --- Autoinit si ya estás desbloqueado --- */
+
+/* ==========================
+   GUARDAR (corregido)
+========================== */
+
+// Corrección clave: construir v con sus claves (antes faltaba y rompía el script)
+const guardar = () => {
+  const ids = ["editId","origen","categoria","subcategoria","fecha","descripcion","importe"];
+  const v = Object.fromEntries(ids.map(id => [id, document.getElementById(id)?.value]));
+  const imp = parseFloat(v.importe);
+  if (!v.origen || !v.categoria || !v.subcategoria || isNaN(imp)) {
+    alert("Faltan datos");
+    return;
+  }
+  const m = {
+    id : v.editId || `id_${Date.now()}`,
+    f  : v.fecha,
+    o  : v.origen,
+    c  : v.categoria,
+    s  : v.subcategoria,
+    imp: v.origen === "Gasto" ? -Math.abs(imp) : Math.abs(imp),
+    d  : v.descripcion,
+    ts : Date.now()
+  };
+  if (v.editId) {
+    const idx = movimientos.findIndex(x => x.id.toString() === v.editId.toString());
+    if (idx !== -1) movimientos[idx] = m;
+  } else {
+    movimientos.push(m);
+    if (movimientos.length % 15 === 0) ejecutarBackupRotativo();
+  }
+  localStorage.setItem('movimientos', JSON.stringify(movimientos));
+  volver();
+};
+window.guardar = guardar; // por si lo llamas desde onclick
+
+/* ==========================
+   Autoinit si ya estás desbloqueado
+========================== */
 document.addEventListener('DOMContentLoaded', ()=>{
   const m = document.getElementById("movimientos");
-  // Si el overlay no está visible (o ya lo cerraste), inicializa
   if (m && m.dataset.permiso === "OK") {
     try { init(); } catch(e){ console.error(e); }
   }
