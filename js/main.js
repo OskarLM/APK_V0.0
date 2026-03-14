@@ -29,6 +29,13 @@ let filtradosGlobal   = [];
 let pinActual         = "";
 let hideCasa          = false;  // toggle del botón Casa
 
+// Anclajes medidos en MOVIMIENTOS para reutilizar en G1/G2
+let footerAnchors = {
+  leftX: null,     // posición X (px) del botón Gráficos en Movimientos
+  centerX: null,   // posición X (px) del botón "+" en Movimientos
+  size: 65         // tamaño base del .plus (fallback)
+};
+
 /* ==========================
    UTILIDADES / NORMALIZACIÓN
 ========================== */
@@ -186,6 +193,11 @@ function iconCasa(){
 ========================== */
 function setModo(modo){
   const m = document.getElementById("movimientos");
+  // Si vamos a entrar en gráficos y venimos de Movimientos, medimos anclajes
+  const from = m.dataset.modo || 'lista';
+  if ((modo === 'graficos' || modo === 'graficos2') && from === 'lista') {
+    captureFooterAnchors();
+  }
   m.dataset.modo = modo;   // "lista" | "graficos" | "graficos2"
   resetPagina();
   mostrar();
@@ -198,6 +210,24 @@ function toggleCasa(){
 function isCasaCategory(cat){
   const k = canonicalizeLabel(cat || "");
   return (k.includes("compra casa") || k.includes("compra garaje") || k.includes("venta casa"));
+}
+
+/* ==========================
+   MEDIDAS Y ANCLAJES (Movimientos → Gráficos)
+========================== */
+function captureFooterAnchors(){
+  try{
+    const fr   = document.querySelector('.footer-row');
+    if (!fr) return;
+    const plus = fr.querySelectorAll('.plus');
+    if (!plus[0] || !plus[1]) return;
+    const frRect     = fr.getBoundingClientRect();
+    const leftRect   = plus[0].getBoundingClientRect(); // botón Gráficos (izq)
+    const centerRect = plus[1].getBoundingClientRect(); // botón "+" (centro)
+    footerAnchors.leftX   = leftRect.left   - frRect.left;
+    footerAnchors.centerX = centerRect.left - frRect.left;
+    footerAnchors.size    = Math.round(centerRect.width || 65);
+  }catch(e){ console.warn('No se pudieron capturar anclajes:', e); }
 }
 
 /* ==========================
@@ -228,69 +258,85 @@ function layoutFooterReset(btnLeft, btnCenter, btnRight){
     b.style.left = "";
     b.style.top = "";
     b.style.transform = "";
-    // display lo gestiona cada modo
     b.style.opacity = "1";
   });
 }
 function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
+
+  // Asegura posicionamiento relativo
   const cs = getComputedStyle(container);
   if (cs.position === 'static') container.style.position = 'relative';
 
-  const W = container.clientWidth || container.offsetWidth || 0;
-  const SIZE = 65;
-  const PAD  = 20;
-
-  const xLeft = PAD;                           // 0%
-  const xG2   = (W / 2) - (SIZE / 2);         // 50% (misma horizontal que el “+” de Movimientos)
-  const xCasa = Math.round((xLeft + xG2) / 2); // 25% (mitad exacta entre izq y G2)
+  // Si tenemos anclajes medidos en Movimientos, los usamos
+  const SIZE  = footerAnchors.size || 65;
+  const xLeft = (footerAnchors.leftX   != null) ? footerAnchors.leftX   : 20;
+  const xG2   = (footerAnchors.centerX != null) ? footerAnchors.centerX : ((container.clientWidth/2) - (SIZE/2));
+  const xCasa = Math.round((xLeft + xG2) / 2);
 
   [btnLeft, btnCenter, btnRight].forEach(b=>{
     b.style.position = 'absolute';
     b.style.top = '50%';
     b.style.transform = 'translateY(-50%)';
   });
+
   btnLeft.style.left   = `${xLeft}px`;
   btnCenter.style.left = `${xCasa}px`;
-  btnRight.style.left  = `${xG2}px`;
-  btnRight.style.opacity = '1';
+
+  // G2 visible y clicable
+  btnRight.style.left         = `${xG2}px`;
+  btnRight.style.display      = '';
+  btnRight.style.opacity      = '1';
+  btnRight.style.pointerEvents= 'auto';
 }
 function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
+
   const cs = getComputedStyle(container);
   if (cs.position === 'static') container.style.position = 'relative';
 
-  const W = container.clientWidth || container.offsetWidth || 0;
-  const SIZE = 65;
-  const PAD  = 20;
-
-  const xLeft = PAD;                           // 0%
-  const xG2   = (W / 2) - (SIZE / 2);         // centro virtual
-  const xCasa = Math.round((xLeft + xG2) / 2); // 25%
+  const SIZE  = footerAnchors.size || 65;
+  const xLeft = (footerAnchors.leftX   != null) ? footerAnchors.leftX   : 20;
+  const xG2   = (footerAnchors.centerX != null) ? footerAnchors.centerX : ((container.clientWidth/2) - (SIZE/2));
+  const xCasa = Math.round((xLeft + xG2) / 2);
 
   [btnLeft, btnCenter, btnRight].forEach(b=>{
     b.style.position = 'absolute';
     b.style.top = '50%';
     b.style.transform = 'translateY(-50%)';
   });
+
   btnLeft.style.left   = `${xLeft}px`;
   btnCenter.style.left = `${xCasa}px`;
 
-  // G2 oculto en gráficos 2
-  btnRight.style.opacity = '0';
-  btnRight.style.left   = `-9999px`;
+  // Botón derecho oculto en G2
+  btnRight.style.opacity      = '0';
+  btnRight.style.left         = `-9999px`;
+  btnRight.style.pointerEvents= 'none';
 }
 
 /* ==========================
-   LAYOUT BALANCE (anclado en gráficos)
+   LAYOUT BALANCE (alineado con RESET)
 ========================== */
+// Calcula offset a la derecha para que el #balance coincida con la derecha de RESET
+function getBalanceRightOffset(container){
+  try{
+    const resetBtn = Array.from(document.querySelectorAll('.footer-controles .btn-small'))
+      .find(b => /reset/i.test((b.textContent||'').trim()));
+    if (!resetBtn || !container) return 20; // fallback padding
+    const contRect  = container.getBoundingClientRect();
+    const resetRect = resetBtn.getBoundingClientRect();
+    const offset = Math.max(0, Math.round(contRect.right - resetRect.right));
+    return offset;
+  }catch(e){ return 20; }
+}
 function layoutBalanceFixed(container, balanceEl){
   if (!container || !balanceEl) return;
   const cs = getComputedStyle(container);
   if (cs.position === 'static') container.style.position = 'relative';
-  const PAD = 20; // mismo padding lateral
+  const rightOffset = getBalanceRightOffset(container);
   balanceEl.style.position  = 'absolute';
-  balanceEl.style.right     = PAD + 'px';
+  balanceEl.style.right     = rightOffset + 'px';
   balanceEl.style.top       = '50%';
   balanceEl.style.transform = 'translateY(-50%)';
 }
@@ -365,21 +411,21 @@ function mostrar() {
     if (btnLeft){   btnLeft.innerHTML = iconBack();  btnLeft.onclick = () => setModo("lista"); }
     if (btnCenter){ btnCenter.innerHTML = iconCasa(); btnCenter.classList.add("btn-house-anim");
                     btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
-    if (btnRight){  btnRight.style.display = ""; btnRight.style.opacity = "1";
+    if (btnRight){  btnRight.style.display = ""; btnRight.style.opacity = "1"; btnRight.style.pointerEvents = "auto";
                     btnRight.innerHTML  = iconGraph2(); btnRight.onclick = () => setModo("graficos2"); }
 
     layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
-    layoutBalanceFixed(footerRow, balanceEl);        // balance a la derecha (mismo sitio)
+    layoutBalanceFixed(footerRow, balanceEl);  // balance a la derecha (alineado con RESET)
 
   } else if (modo === "graficos2") {
     // G2 — 2 botones (izq+centro). Derecho oculto.
     if (btnLeft){   btnLeft.innerHTML = iconBack();  btnLeft.onclick = () => setModo("graficos"); }
     if (btnCenter){ btnCenter.innerHTML = iconCasa(); btnCenter.classList.add("btn-house-anim");
                     btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
-    if (btnRight){  btnRight.innerHTML = ""; btnRight.onclick = null; btnRight.style.display = "none"; }
+    if (btnRight){  btnRight.innerHTML = ""; btnRight.onclick = null; btnRight.style.display = "none"; btnRight.style.pointerEvents = "none"; }
 
     layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
-    layoutBalanceFixed(footerRow, balanceEl);        // balance a la derecha (mismo sitio)
+    layoutBalanceFixed(footerRow, balanceEl);  // balance a la derecha (alineado con RESET)
 
   } else { // LISTA — MOVIMIENTOS V0.0 EXACTA
     if (btnLeft){   btnLeft.innerHTML = iconBars(); btnLeft.classList.add("plus-like"); btnLeft.onclick = () => setModo("graficos"); }
@@ -394,7 +440,7 @@ function mostrar() {
       btnRight.style.transform = ""; btnRight.style.opacity = "0";
     }
     layoutFooterReset(btnLeft, btnCenter, btnRight);
-    layoutBalanceReset(balanceEl);                   // balance vuelve al grid normal
+    layoutBalanceReset(balanceEl);             // balance vuelve al grid normal
   }
 
   // Render contenido
@@ -422,7 +468,7 @@ function mostrar() {
   updateBackupIndicator();
 }
 
-// Recalcular al redimensionar
+// Recalcular en resize/orientación
 window.addEventListener('resize', function(){
   const movDiv = document.getElementById("movimientos");
   if (!movDiv) return;
