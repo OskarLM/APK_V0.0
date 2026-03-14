@@ -75,7 +75,7 @@ const buildCanonIndex = (preferida=[], secundaria=[]) => {
   preferida.forEach(add); secundaria.forEach(add);
   return map;
 };
-// Escape HTML para pintar strings dentro de templates
+// Escape HTML para textos
 function esc(s){
   const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
   return (s ?? '').toString().replace(/[&<>"']/g, ch => map[ch]);
@@ -226,12 +226,15 @@ function mostrar() {
   const movDiv = document.getElementById("movimientos");
   if (!movDiv || movDiv.dataset.permiso !== "OK") return;
 
-  const fs = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"].map(id => document.getElementById(id).value);
+  const fs = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"].map(id => {
+    const el = document.getElementById(id);
+    return el ? el.value : "TODOS";
+  });
 
   // Filtrado base para vistas
   filtradosGlobal = movimientos
     .filter(m => {
-      const d = m.f.split("-");
+      const d = (m.f || "").split("-");
       const cM = fs[0] === "TODOS" || (parseInt(d[1]) - 1).toString() === fs[0];
       const cA = fs[1] === "TODOS" || d[0] === fs[1];
       const cC = fs[2] === "TODAS" || m.c === fs[2];
@@ -245,15 +248,17 @@ function mostrar() {
   let t = 0;
   filtradosGlobal
     .filter(m => hideCasa ? !isCasaCategory(m.c) : true)
-    .forEach(m => t += m.imp);
+    .forEach(m => t += Number(m.imp) || 0);
 
   const factor = (fs[0] === "TODOS") ? 12 : 1;
   const bD = document.getElementById("balance");
-  bD.innerText = t.toFixed(2) + " €";
-  if (t < 0) bD.style.color = "var(--danger)";
-  else if (t <= (750 * factor)) bD.style.color = "var(--warning)";
-  else if (t <= (1400 * factor)) bD.style.color = "var(--success)";
-  else bD.style.color = "var(--electric-blue)";
+  if (bD){
+    bD.innerText = t.toFixed(2) + " €";
+    if (t < 0) bD.style.color = "var(--danger)";
+    else if (t <= (750 * factor)) bD.style.color = "var(--warning)";
+    else if (t <= (1400 * factor)) bD.style.color = "var(--success)";
+    else bD.style.color = "var(--electric-blue)";
+  }
 
   // === FOOTER DINÁMICO (3 botones .plus en el grid) ===
   const footerRow = document.querySelector(".footer-row");
@@ -262,10 +267,9 @@ function mostrar() {
   const btnRight = document.querySelector(".footer-row .plus:nth-child(3)");
 
   const modo = movDiv.dataset.modo || "lista";
-
   function aplicarEstadoCasa(){ if (btnCenter) btnCenter.classList.toggle("active", !!hideCasa); }
 
-  // Limpieza de clases/eventos y reset de posicionamiento
+  // Limpieza de clases/eventos y reset layout
   [btnLeft, btnCenter, btnRight].forEach(b=>{
     if (!b) return;
     b.onclick = null;
@@ -309,7 +313,7 @@ function mostrar() {
     if (btnRight){ btnRight.innerHTML = ""; btnRight.onclick = null; }
   }
 
-  // === Aplicar layout SOLO aquí (después de configurar los botones) ===
+  // === APLICAR LAYOUT (solo en modos gráficos) ===
   if (modo === "graficos") {
     layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
   } else if (modo === "graficos2") {
@@ -321,7 +325,6 @@ function mostrar() {
   // Render contenido
   const listaDiv = document.getElementById("lista");
   if (modo === "graficos" || modo === "graficos2") {
-    // (Casa está en footer) → limpiamos la zona superior
     listaDiv.innerHTML = "";
     if (modo === "graficos") {
       renderizarBarrasGraficos((fs[0] === "TODOS") ? 12 : 1);
@@ -337,9 +340,10 @@ function mostrar() {
         <div class="meta">${esc(m.f.split("-").reverse().join("/"))} • ${esc(m.o)}</div>
         <b>${esc(m.c)} - ${esc(m.s)}</b>
         ${m.d ? `<div style="font-size:12px;opacity:.8">${esc(m.d)}</div>` : ''}
-        <div class="monto" style="color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">${m.imp.toFixed(2)} €</div>
+        <div class="monto" style="color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">${(Number(m.imp)||0).toFixed(2)} €</div>
       </div>`).join("");
-    document.getElementById("loader").style.display = "none";
+    const loader = document.getElementById("loader");
+    if (loader) loader.style.display = "none";
   }
 
   // Indicador copia
@@ -348,7 +352,7 @@ function mostrar() {
 }
 
 /* ==========================
-   LAYOUT de los botones del footer (Gráficos)
+   LAYOUT de botones del footer (Gráficos)
 ========================== */
 function layoutFooterReset(btnLeft, btnCenter, btnRight){
   [btnLeft, btnCenter, btnRight].forEach(b=>{
@@ -356,58 +360,55 @@ function layoutFooterReset(btnLeft, btnCenter, btnRight){
     b.style.position = "";
     b.style.left = "";
     b.style.right = "";
+    b.style.top = "";
     b.style.transform = "";
     b.style.opacity = "1";
   });
 }
-
 function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
   const W = container.clientWidth || container.offsetWidth || 0;
-  const SIZE = 65;      // diámetro del .plus en tu CSS
-  const PADDING = 20;   // margen lateral izq/dcha
+  const SIZE = 65;      // diámetro .plus
+  const PAD  = 20;      // margen izquierdo
 
-  const leftX = PADDING;                      // Atrás (izq)
-  const g2X   = (W / 2) - (SIZE / 2);         // G2 (centro exacto)
-  const casaX = Math.round((leftX + g2X) / 2);// Casa (a mitad: ≈25%)
+  const xLeft = PAD;                           // Atrás (0% + padding)
+  const xG2   = (W / 2) - (SIZE / 2);          // G2 (50% exacto)
+  const xCasa = Math.round((xLeft + xG2) / 2);  // Casa (≈25%)
 
-  [btnLeft, btnCenter, btnRight].forEach(b => { b.style.position = "absolute"; });
+  [btnLeft, btnCenter, btnRight].forEach(b=>{
+    b.style.position = "absolute";
+    b.style.top = "50%";
+    b.style.transform = "translateY(-50%)";
+  });
 
-  btnLeft.style.left = `${leftX}px`;
-  btnLeft.style.transform = "translateX(0)";
-
-  btnCenter.style.left = `${casaX}px`;
-  btnCenter.style.transform = "translateX(0)";
-
-  btnRight.style.left = `${g2X}px`;
-  btnRight.style.transform = "translateX(0)";
+  btnLeft.style.left = `${xLeft}px`;
+  btnCenter.style.left = `${xCasa}px`;
+  btnRight.style.left = `${xG2}px`;
   btnRight.style.opacity = "1";
 }
-
 function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
   const W = container.clientWidth || container.offsetWidth || 0;
   const SIZE = 65;
-  const PADDING = 20;
+  const PAD  = 20;
 
-  const leftX = PADDING;                      // Atrás (izq)
-  const g2X   = (W / 2) - (SIZE / 2);         // Centro virtual p/ calcular 25%
-  const casaX = Math.round((leftX + g2X) / 2);// Casa (mismo 25% que en G1)
+  const xLeft = PAD;                           // Atrás
+  const xG2   = (W / 2) - (SIZE / 2);          // Centro virtual
+  const xCasa = Math.round((xLeft + xG2) / 2);  // Casa (≈25%)
 
-  [btnLeft, btnCenter, btnRight].forEach(b => { b.style.position = "absolute"; });
+  [btnLeft, btnCenter, btnRight].forEach(b=>{
+    b.style.position = "absolute";
+    b.style.top = "50%";
+    b.style.transform = "translateY(-50%)";
+  });
 
-  btnLeft.style.left = `${leftX}px`;
-  btnLeft.style.transform = "translateX(0)";
-
-  btnCenter.style.left = `${casaX}px`;
-  btnCenter.style.transform = "translateX(0)";
-
+  btnLeft.style.left = `${xLeft}px`;
+  btnCenter.style.left = `${xCasa}px`;
   btnRight.style.opacity = "0";
   btnRight.style.left = `-9999px`;
-  btnRight.style.transform = "translateX(0)";
 }
 
-// Reaplicar layout si cambia el tamaño de ventana/orientación
+// Reaplicar layout si cambia tamaño/orientación
 window.addEventListener('resize', ()=>{
   const movDiv = document.getElementById("movimientos");
   if (!movDiv) return;
@@ -538,7 +539,11 @@ function renderizarGraficos2() {
   const lista = document.getElementById("lista");
   const oldChart = lista.querySelector('.g2-wrap'); if (oldChart) oldChart.remove();
 
-  const fs = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"].map(id => document.getElementById(id).value);
+  const fs = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"].map(id => {
+    const el = document.getElementById(id);
+    return el ? el.value : "TODOS";
+  });
+
   const hoy = new Date();
   const meses = [];
   for (let i = 12; i >= 0; i--) {
@@ -690,7 +695,7 @@ const abrirFormulario = (id = null) => {
 
 const guardar = () => {
   const ids = ["editId","origen","categoria","subcategoria","fecha","descripcion","importe"];
-  // ✅ FIX: clave computada [id] (evita Unexpected token '(')
+  // ✅ Clave computada [id]
   const v = ids.reduce((acc,id)=>({
     ...acc,
     [id]: (document.getElementById(id) ? document.getElementById(id).value : "")
@@ -799,12 +804,18 @@ const actualizarListas = () => {
         fS = document.getElementById("filtroSub"),
         fO = document.getElementById("filtroOri");
 
-  fC.innerHTML = '<option value="TODAS">Cat: TODAS</option>';
-  [...new Set([...catBase, ...catExtra, ...NOMINA_CATS])].sort().forEach(c => fC.add(new Option(c, c)));
-  fS.innerHTML = '<option value="TODAS">Sub: TODAS</option>';
-  [...new Set([...subMaestra, ...NOMINA_SUBS])].sort().forEach(s => fS.add(new Option(s, s)));
-  fO.innerHTML = '<option value="TODOS">Ori: TODOS</option>';
-  origenBase.forEach(o => fO.add(new Option(o, o)));
+  if (fC){
+    fC.innerHTML = '<option value="TODAS">Cat: TODAS</option>';
+    [...new Set([...catBase, ...catExtra, ...NOMINA_CATS])].sort().forEach(c => fC.add(new Option(c, c)));
+  }
+  if (fS){
+    fS.innerHTML = '<option value="TODAS">Sub: TODAS</option>';
+    [...new Set([...subMaestra, ...NOMINA_SUBS])].sort().forEach(s => fS.add(new Option(s, s)));
+  }
+  if (fO){
+    fO.innerHTML = '<option value="TODOS">Ori: TODOS</option>';
+    origenBase.forEach(o => fO.add(new Option(o, o)));
+  }
 };
 
 /* ==========================
@@ -862,22 +873,28 @@ const init = () => {
         fA = document.getElementById("filtroAño"),
         hoy = new Date();
 
-  fM.innerHTML = '<option value="TODOS">Mes: TODOS</option>';
-  mesesLabel.forEach((m, i) => fM.add(new Option(m, i)));
-  fM.value = hoy.getMonth();
+  if (fM){
+    fM.innerHTML = '<option value="TODOS">Mes: TODOS</option>';
+    mesesLabel.forEach((m, i) => fM.add(new Option(m, i)));
+    fM.value = hoy.getMonth();
+  }
 
-  fA.innerHTML = '<option value="TODOS">Año: TODOS</option>';
-  for (let a = 2020; a <= 2030; a++) fA.add(new Option(a, a));
-  fA.value = hoy.getFullYear();
+  if (fA){
+    fA.innerHTML = '<option value="TODOS">Año: TODOS</option>';
+    for (let a = 2020; a <= 2030; a++) fA.add(new Option(a, a));
+    fA.value = hoy.getFullYear();
+  }
 
   normalizarListasExistentes();
   actualizarListas();
   mostrar();
 };
 window.onscroll = () => {
-  if (document.getElementById("movimientos").dataset.modo === "graficos") return;
+  const movDiv = document.getElementById("movimientos");
+  if (!movDiv || movDiv.dataset.modo === "graficos") return;
   if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 200 && registrosVisibles < filtradosGlobal.length) {
-    document.getElementById("loader").style.display = "block";
+    const loader = document.getElementById("loader");
+    if (loader) loader.style.display = "block";
     setTimeout(() => { registrosVisibles += 25; mostrar(); }, 200);
   }
 };
@@ -1062,7 +1079,7 @@ window.eliminarRegistroActual = function(){
 };
 
 /* ==========================
-   BACKUPS (cifradol PIN, rotativo, auto-descarga, OneDrive)
+   BACKUPS (cifrado con el PIN, rotativo, auto-descarga, OneDrive)
 ========================== */
 function hexToBytes(hex){ const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.slice(i,i+2),16)); return new Uint8Array(a); }
 function bytesToBase64(bytes){ if (typeof btoa==='function'){ let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin); } else { return Buffer.from(bytes).toString('base64'); } }
@@ -1196,11 +1213,9 @@ if ('serviceWorker' in navigator) {
 /* ==========================
    EXPONER FUNCIONES AL GLOBAL
 ========================== */
-// PIN
 window.pressPin = pressPin;
 window.clearPin = clearPin;
 window.biometricAuth = biometricAuth;
-// Navegación y acciones
 window.resetPagina = resetPagina;
 window.mostrar = mostrar;
 window.abrirFormulario = abrirFormulario;
@@ -1213,12 +1228,9 @@ window.abrirGraficos = abrirGraficos;
 window.ejecutarBackupRotativo = ejecutarBackupRotativo;
 window.init = init;
 window.actualizarListas = actualizarListas;
-// Vistas/Modo
 window.setModo = setModo;
 window.toggleCasa = toggleCasa;
-// Gráficos (drill)
 window.handleGraficoBarClick = handleGraficoBarClick;
 window.abrirDetalleMovs = abrirDetalleMovs;
-// Backups
 window.guardarCopiaEnOneDrive = guardarCopiaEnOneDrive;
 window.restaurarCopiaDeOneDrive = restaurarCopiaDeOneDrive;
