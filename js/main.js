@@ -405,10 +405,10 @@ function renderizarGraficos2() {
   const valores = meses.map(m => sumaMes.get(m.key) || 0);
   const maxAbs = Math.max(...valores.map(v => Math.abs(v)), 1);
 
-  const alto = 180;
-  const mitad = alto / 2;
-  const maxDespl = Math.max(mitad - 16, 40);
-  const baseTop = mitad - 9; // punto base del cuadrado (18px de alto)
+  const alto = 180;                 // coincide con .g2-chart { height:180px }
+  const mitad = alto / 2;           // baseline visual
+  const maxDespl = Math.max(mitad - 8, 40);  // margen superior/inf para redondeos
+  const minBar = 4;                 // altura mínima de columna para evitar que “desaparezca” con valores muy pequeños
 
   // === COLORES V1.0 (igual que Gráfico 1) ===
   const colorPositivo = (v) => {
@@ -430,25 +430,18 @@ function renderizarGraficos2() {
   const mesesCorta = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
   for (const m of meses){
-    const v = sumaMes.get(m.key) || 0;   // valor del mes
-    const sign = v >= 0 ? 1 : -1;        // signo → arriba o abajo
-    const off  = (Math.abs(v) / maxAbs) * maxDespl;
-    const topPx = (baseTop) - (off * sign);
+    const v = sumaMes.get(m.key) || 0;     // valor del mes
+    const abs = Math.abs(v);
+    const h   = Math.max(minBar, (abs / maxAbs) * maxDespl); // altura de la barra
+    const isPos = v >= 0;
 
-    // === COLOR según signo y umbrales ===
-    const color = (v >= 0)
-      ? colorPositivo(v)
-      : "var(--danger)";     // negativos siempre rojo
-
+    const color = isPos ? colorPositivo(v) : "var(--danger)";
     const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
     const label = mesesCorta[mesIdx];
 
     html += `
       <div class="g2-col">
-        <div class="g2-square" style="
-          top:${topPx}px;
-          background:${color};
-        "></div>
+        <div class="g2-bar ${isPos ? 'pos' : 'neg'}" style="height:${h}px; background:${color};"></div>
         <div class="g2-label">${label}</div>
       </div>
     `;
@@ -457,7 +450,6 @@ function renderizarGraficos2() {
   html += `</div></div>`;
   lista.innerHTML += html;
 }
-
 /* ==========================
    FORMULARIO / CRUD
 ========================== */
