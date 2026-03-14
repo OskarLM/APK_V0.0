@@ -4,9 +4,9 @@
 //  - PIN_STORAGE_KEY, PIN_COOLDOWN_KEY
 //  - sha256(pin), getAttempts(), setAttempts(n), isInCooldown(), setCooldown(seg)
 
-// ==========================
-// BASES Y ESTADO GLOBAL
-// ==========================
+/* ==========================
+   BASES Y ESTADO GLOBAL
+========================== */
 const subBase = [
   "Accesorios","Agua","Aita","Ajuar / Electrodomésticos","Alojamiento","Apuestas y juegos","Atracciones","Ayuntamiento",
   "Barco","Cajero","Casa","Comida","Comisiones","Comunidad","Copas","Efectivo","Electrónica","Extraescolar","Farmacia",
@@ -29,9 +29,9 @@ let filtradosGlobal   = [];
 let pinActual         = "";
 let hideCasa          = false;  // toggle del botón Casa
 
-// ==========================
-// UTILIDADES / NORMALIZACIÓN
-// ==========================
+/* ==========================
+   UTILIDADES / NORMALIZACIÓN
+========================== */
 const normalizeKey = (s) => (s ?? "")
   .toString().trim().toLowerCase()
   .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
@@ -75,9 +75,9 @@ function esc(s){
   return (s ?? '').toString().replace(/[&<>"']/g, ch => map[ch]);
 }
 
-// ==========================
-// PIN + BIOMETRÍA (BÁSICO)
-// ==========================
+/* ==========================
+   PIN + BIOMETRÍA (BÁSICO)
+========================== */
 async function ensureDefaultPinHash() {
   const pinHash = localStorage.getItem(PIN_STORAGE_KEY);
   if (!pinHash) {
@@ -149,9 +149,9 @@ document.addEventListener('DOMContentLoaded', () => {
   updateDots();
 });
 
-// ==========================
-// ICONOS SVG
-// ==========================
+/* ==========================
+   ICONOS SVG (MISMAS IMÁGENES)
+========================== */
 function iconBars(){
   return `
   <svg viewBox="0 0 24 24" class="btn-icon" fill="none" stroke="black" stroke-width="3">
@@ -181,9 +181,9 @@ function iconCasa(){
   </svg>`;
 }
 
-// ==========================
-// VISTAS Y TOGGLE CASA
-// ==========================
+/* ==========================
+   VISTAS Y TOGGLE CASA
+========================== */
 function setModo(modo){
   const m = document.getElementById("movimientos");
   m.dataset.modo = modo;   // "lista" | "graficos" | "graficos2"
@@ -200,9 +200,10 @@ function isCasaCategory(cat){
   return (k.includes("compra casa") || k.includes("compra garaje") || k.includes("venta casa"));
 }
 
-// ==========================
-// LAYOUT FOOTER (AUTOCURACIÓN)
-// ==========================
+/* ==========================
+   LAYOUT FOOTER (AUTOCURACIÓN)
+========================== */
+// Garantiza 3 .plus dentro de .footer-row (crea “fantasma(s)” si faltan)
 function ensureThreePlusButtons() {
   const fr = document.querySelector('.footer-row');
   if (!fr) return [];
@@ -227,6 +228,7 @@ function layoutFooterReset(btnLeft, btnCenter, btnRight){
     b.style.left = "";
     b.style.top = "";
     b.style.transform = "";
+    // No forzamos display aquí; lo gestiona cada modo
     b.style.opacity = "1";
   });
 }
@@ -239,9 +241,9 @@ function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   const SIZE = 65;
   const PAD  = 20;
 
-  const xLeft = PAD;                          // 0%
-  const xG2   = (W / 2) - (SIZE / 2);        // 50%
-  const xCasa = Math.round((xLeft + xG2) / 2); // 25%
+  const xLeft = PAD;                           // 0%
+  const xG2   = (W / 2) - (SIZE / 2);         // 50% (misma posición que el “+” de Movimientos)
+  const xCasa = Math.round((xLeft + xG2) / 2); // 25% (mitad exacta entre izq y G2)
 
   [btnLeft, btnCenter, btnRight].forEach(b=>{
     b.style.position = 'absolute';
@@ -262,8 +264,8 @@ function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
   const SIZE = 65;
   const PAD  = 20;
 
-  const xLeft = PAD;                          // 0%
-  const xG2   = (W / 2) - (SIZE / 2);        // centro virtual
+  const xLeft = PAD;                           // 0%
+  const xG2   = (W / 2) - (SIZE / 2);         // centro virtual
   const xCasa = Math.round((xLeft + xG2) / 2); // 25%
 
   [btnLeft, btnCenter, btnRight].forEach(b=>{
@@ -273,13 +275,15 @@ function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
   });
   btnLeft.style.left   = `${xLeft}px`;
   btnCenter.style.left = `${xCasa}px`;
+
+  // G2 oculto en gráficos 2
   btnRight.style.opacity = '0';
   btnRight.style.left   = `-9999px`;
 }
 
-// ==========================
-// MOSTRAR (LISTA / G1 / G2)
-// ==========================
+/* ==========================
+   MOSTRAR (LISTA / G1 / G2)
+========================== */
 function mostrar() {
   const movDiv = document.getElementById("movimientos");
   if (!movDiv || movDiv.dataset.permiso !== "OK") return;
@@ -331,31 +335,41 @@ function mostrar() {
     if (!b) return;
     b.onclick = null; b.classList.remove("plus-like","btn-house-anim","active");
     b.style.opacity = "1";
+    b.style.display = ""; // por si venía oculto de otra vista
   });
   layoutFooterReset(btnLeft, btnCenter, btnRight);
 
   if (modo === "graficos") {
-    if (btnLeft){   btnLeft.innerHTML = iconBack();  btnLeft.onclick   = () => setModo("lista"); }
+    // G1 — 3 botones
+    if (btnLeft){   btnLeft.innerHTML = iconBack();  btnLeft.onclick = () => setModo("lista"); }
     if (btnCenter){ btnCenter.innerHTML = iconCasa(); btnCenter.classList.add("btn-house-anim");
-                    btnCenter.onclick   = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
-    if (btnRight){  btnRight.innerHTML  = iconGraph2(); btnRight.onclick = () => setModo("graficos2"); }
+                    btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
+    if (btnRight){  btnRight.style.display = ""; btnRight.style.opacity = "1";
+                    btnRight.innerHTML  = iconGraph2(); btnRight.onclick = () => setModo("graficos2"); }
+
+    layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
+
   } else if (modo === "graficos2") {
-    if (btnLeft){   btnLeft.innerHTML = iconBack();  btnLeft.onclick   = () => setModo("graficos"); }
+    // G2 — 2 botones (izq+centro). Derecho oculto.
+    if (btnLeft){   btnLeft.innerHTML = iconBack();  btnLeft.onclick = () => setModo("graficos"); }
     if (btnCenter){ btnCenter.innerHTML = iconCasa(); btnCenter.classList.add("btn-house-anim");
-                    btnCenter.onclick   = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
-    if (btnRight){  btnRight.innerHTML = ""; btnRight.onclick = null; }
-  } else {
+                    btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
+    if (btnRight){  btnRight.innerHTML = ""; btnRight.onclick = null; btnRight.style.display = "none"; }
+
+    layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
+
+  } else { // LISTA — MOVIMIENTOS V0.0 EXACTA
     if (btnLeft){   btnLeft.innerHTML = iconBars(); btnLeft.classList.add("plus-like"); btnLeft.onclick = () => setModo("graficos"); }
     if (btnCenter){ btnCenter.innerHTML = "+"; btnCenter.onclick = () => abrirFormulario(); }
-    if (btnRight){  btnRight.innerHTML = ""; btnRight.onclick = null; }
-  }
-
-  // Aplicar layout (solo en gráficos)
-  if (modo === "graficos") {
-    layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
-  } else if (modo === "graficos2") {
-    layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
-  } else {
+    if (btnRight){
+      // En Movimientos el 3º botón NO debe verse
+      btnRight.innerHTML = "";
+      btnRight.onclick = null;
+      btnRight.style.display = "none";
+      // Aseguramos que no queda absolutizado de otro modo:
+      btnRight.style.position = ""; btnRight.style.left = ""; btnRight.style.top = "";
+      btnRight.style.transform = ""; btnRight.style.opacity = "0";
+    }
     layoutFooterReset(btnLeft, btnCenter, btnRight);
   }
 
@@ -401,9 +415,9 @@ window.addEventListener('resize', function(){
   else layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
 });
 
-// ==========================
-// GRÁFICOS 1 (barras) + DRILL
-// ==========================
+/* ==========================
+   GRÁFICOS 1 (barras) + DRILL
+========================== */
 function renderizarBarrasGraficos(f) {
   const lista = document.getElementById("lista");
   const elFC = document.getElementById("filtroCat");
@@ -502,9 +516,9 @@ function abrirDetalleMovs(categoria, subcategoria){
   }
 }
 
-// ==========================
-// GRÁFICOS 2 (columnas)
-// ==========================
+/* ==========================
+   GRÁFICOS 2 (columnas)
+========================== */
 function renderizarGraficos2() {
   const lista = document.getElementById("lista");
   const oldChart = lista.querySelector('.g2-wrap'); if (oldChart) oldChart.remove();
@@ -603,9 +617,9 @@ function renderizarGraficos2() {
   }
 }
 
-// ==========================
-// FORMULARIO / CRUD
-// ==========================
+/* ==========================
+   FORMULARIO / CRUD
+========================== */
 const llenar = (id, base, extra, pre = "", opts = {}) => {
   const s = document.getElementById(id);
   const origenActual = opts.origenActual || "";
@@ -785,9 +799,9 @@ const actualizarListas = () => {
   }
 };
 
-// ==========================
-// NORMALIZACIÓN RETROACTIVA
-// ==========================
+/* ==========================
+   NORMALIZACIÓN RETROACTIVA
+========================== */
 function normalizarListasExistentes(){
   const vistosCat = new Set(Object.values(catBase).map(v => canonicalizeLabel(v)));
   const nuevaExtra = [];
@@ -829,9 +843,9 @@ function normalizarListasExistentes(){
   if (cambiado) localStorage.setItem('movimientos', JSON.stringify(movimientos));
 }
 
-// ==========================
-// INIT + SCROLL
-// ==========================
+/* ==========================
+   INIT + SCROLL
+========================== */
 const init = () => {
   const fM = document.getElementById("filtroMes"),
         fA = document.getElementById("filtroAño"),
@@ -863,9 +877,9 @@ window.onscroll = function(){
   }
 };
 
-// ==========================
-// CSV: EXPORTACIÓN / IMPORTACIÓN
-// ==========================
+/* ==========================
+   CSV: EXPORTACIÓN / IMPORTACIÓN
+========================== */
 const exportarCSV = () => {
   if (!movimientos || movimientos.length === 0) { alert("No hay datos para exportar."); return; }
   const SEP = ";";
@@ -988,9 +1002,9 @@ const importarCSV = (e) => {
   reader.readAsText(file, 'UTF-8');
 };
 
-// ==========================
-// POPUPS (Premium / Nómina)
-// ==========================
+/* ==========================
+   POPUPS (Premium / Nómina)
+========================== */
 (function(){
   const lanzarPopupPremium = (el,tipo) => {
     const overlay=document.createElement('div'); overlay.className='premium-overlay';
@@ -1050,9 +1064,9 @@ const importarCSV = (e) => {
   },true);
 })();
 
-// ==========================
-// ELIMINAR REGISTRO
-// ==========================
+/* ==========================
+   ELIMINAR REGISTRO
+========================== */
 window.eliminarRegistroActual = function(){
   const idAEliminar = (document.getElementById("editId")||{}).value;
   if (!idAEliminar) return;
@@ -1063,9 +1077,9 @@ window.eliminarRegistroActual = function(){
   }
 };
 
-// ==========================
-// BACKUPS (cifrado con PIN)
-// ==========================
+/* ==========================
+   BACKUPS (cifrado con PIN)
+========================== */
 function hexToBytes(hex){ const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.slice(i,i+2),16)); return new Uint8Array(a); }
 function bytesToBase64(bytes){ if (typeof btoa==='function'){ let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]); return btoa(bin); } else { return Buffer.from(bytes).toString('base64'); } }
 function base64ToBytes(b64){ if (typeof atob==='function'){ const bin=atob(b64); const out=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out; } else { return new Uint8Array(Buffer.from(b64,'base64')); } }
@@ -1196,19 +1210,20 @@ function updateBackupIndicator(){
 }
 setInterval(updateBackupIndicator, 60000);
 
-// ==========================
-// SERVICE WORKER (PWA)
-// ==========================
+/* ==========================
+   SERVICE WORKER (PWA)
+========================== */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function(){
     navigator.serviceWorker.register('./sw.js').catch(function(err){ console.error("SW ERROR:", err); });
   });
 }
 
-// ==========================
-// COMPAT (RESET) + EXPORTAR AL GLOBAL
-// ==========================
-function resetTotal(){ /* no-op para compatibilidad con tu botón RESET */ }
+/* ==========================
+   COMPAT (RESET) + EXPORTAR GLOBAL
+========================== */
+// No-op para compatibilidad con el botón RESET del HTML
+function resetTotal(){ /* sin operación */ }
 
 // PIN
 window.pressPin = pressPin;
