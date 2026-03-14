@@ -120,8 +120,9 @@ async function verifyAndUnlock(pinPlain) {
 }
 
 const pressPin = async (n) => {
-  if (isInCooldown() > 0) {
-    const s = Math.ceil(isInCooldown() / 1000);
+  const remain = (typeof isInCooldown === 'function') ? isInCooldown() : 0;
+  if (remain > 0) {
+    const s = Math.ceil(remain / 1000);
     alert(`Bloqueado temporalmente. Espera ${s} s.`);
     return;
   }
@@ -457,66 +458,6 @@ function renderizarGraficos2() {
   lista.innerHTML += html;
 }
 
-
-  // 3) Base filtrada por Ori/Cat/Sub + “Casa”
-  const filtraOtros = (m) => {
-    const cC = fs[2] === "TODAS" || m.c === fs[2];
-    const cS = fs[3] === "TODAS" || m.s === fs[3];
-    const cO = fs[4] === "TODOS" || m.o === fs[4];
-    return cC && cS && cO;
-  };
-  const base = (hideCasa ? movimientos.filter(mm => !isCasaCategory(mm.c)) : movimientos)
-    .filter(filtraOtros);
-
-  // 4) Suma mensual
-  const sumaMes = new Map();
-  for (const mov of base) {
-    const k = (mov.f || "").slice(0,7);
-    if (!meses.some(x => x.key === k)) continue;
-    sumaMes.set(k, (sumaMes.get(k) || 0) + (Number(mov.imp) || 0));
-  }
-
-  // 5) Escala y colores (umbrales 50/200/500 como en barras)
-  const valores = meses.map(m => sumaMes.get(m.key) || 0);
-  const maxAbs = Math.max(...valores.map(v => Math.abs(v)), 1);
-  const alto = 180, mitad = alto/2, maxDespl = Math.max(mitad - 16, 40);
-  const baseTop = mitad - 9;
-
-  const colorPositivo = (v) => {
-    const abs = Math.abs(v);
-    if (abs <= 50)  return "var(--electric-blue)";
-    if (abs <= 200) return "var(--success)";
-    if (abs <= 500) return "var(--warning)";
-    return "var(--danger)";
-  };
-
-  let html = `
-    <h2 style="color:var(--primary);font-size:18px;text-align:center">EVOLUCIÓN (13 MESES)</h2>
-    <div class="g2-wrap">
-      <div class="g2-chart">
-        <div class="g2-baseline"></div>
-  `;
-  const mesesCorta = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-  for (const m of meses){
-    const v = sumaMes.get(m.key) || 0;
-    const sign = v >= 0 ? 1 : -1;
-    const off  = (Math.abs(v)/maxAbs) * maxDespl;
-    const topPx= (baseTop) - (off * sign);
-    const color= (v >= 0) ? colorPositivo(v) : "var(--danger)";
-    const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
-    const label = mesesCorta[mesIdx];
-
-    html += `
-      <div class="g2-col">
-        <div class="g2-square" style="top:${topPx}px; background:${color};"></div>
-        <div class="g2-label">${label}</div>
-      </div>
-    `;
-  }
-  html += `</div></div>`;
-  lista.innerHTML += html;
-}
-
 /* ==========================
    FORMULARIO / CRUD
 ========================== */
@@ -583,8 +524,8 @@ const abrirFormulario = (id = null) => {
 
 const guardar = () => {
   const ids = ["editId","origen","categoria","subcategoria","fecha","descripcion","importe"];
-  // ✅ FIX: propiedad computada correcta
-  const v = ids.reduce((acc,id)=>({ ...acc, [id]: document.getElementById(id)?.value }),{});
+  // propiedad computada correcta
+  const v = ids.reduce((acc,id)=>({ ...acc, document.getElementById(id)?.value }),{});
   const imp = parseFloat(v.importe);
   if (!v.origen || !v.categoria || !v.subcategoria || isNaN(imp)) return alert("Faltan datos");
 
@@ -621,10 +562,9 @@ const volver = () => {
 const manejarNuevo = (el, tipo) => {
   if (el.value !== "+") return;
 
-  // El popup Premium coloca el texto en data-atributo
   let n = el.dataset.nuevoValor || "";
-  el.dataset.nuevoValor = ""; // limpiar para siguiente uso
-  if (!n) { el.value = ""; return; } // sin fallback a prompt para evitar alertas del navegador
+  el.dataset.nuevoValor = "";
+  if (!n) { el.value = ""; return; }
 
   const pretty = mostrarBonito(n.trim());
   const keyNew = canonicalizeLabel(pretty);
@@ -632,7 +572,7 @@ const manejarNuevo = (el, tipo) => {
   if (tipo === "categoria") {
     const catIdx = buildCanonIndex(catBase, catExtra);
     if (NOMINA_CATS.some(x => canonicalizeLabel(x) === keyNew)) {
-      alert("No puedes crear manualmente 'Oskar' ni 'Josune'. Selecciona 'Nómina' y usa el popup.");
+      alert("No puedes crear manualmente 'Oskar' ni 'Josune'. Selecciona 'Nómina'.");
       el.value = "";
       return;
     }
@@ -782,7 +722,7 @@ window.onscroll = () => {
 };
 
 /* ==========================
-   CSV: EXPORTACIÓN
+   CSV: EXPORTACIÓN / IMPORTACIÓN
 ========================== */
 const exportarCSV = () => {
   if (!movimientos || movimientos.length === 0) {
@@ -811,7 +751,7 @@ const exportarCSV = () => {
       m.o || "",
       m.c || "",
       m.s || "",
-      toEuro(m.imp),
+      (Number(m.imp)||0),
       (m.d ?? "").trim()
     ].map(csvCell).join(SEP)
   );
@@ -829,9 +769,6 @@ const exportarCSV = () => {
   URL.revokeObjectURL(url);
 };
 
-/* ==========================
-   CSV: IMPORTACIÓN
-========================== */
 const importarCSV = (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
@@ -975,8 +912,7 @@ const importarCSV = (e) => {
 };
 
 /* ==========================
-   POPUP PREMIUM + “Añadir nuevo”
-   (Entrega el valor por dataset; sin prompt())
+   POPUP PREMIUM (entrega valor a manejarNuevo por dataset)
 ========================== */
 (function(){
   const lanzarPopupPremium = (el,tipo) => {
@@ -993,7 +929,6 @@ const importarCSV = (e) => {
       const n=(document.getElementById('val_premium').value||"").trim();
       if(n){
         const select=el;
-        // Guardamos el valor para manejarNuevo()
         select.dataset.nuevoValor = n;
         select.value = "+";
         close();
@@ -1002,7 +937,6 @@ const importarCSV = (e) => {
     };
     document.getElementById('cancel_premium').onclick=()=>{ el.value=""; close(); };
   };
-
   document.addEventListener('change',(e)=>{
     if((e.target.id==='categoria'||e.target.id==='subcategoria') && e.target.value === "+"){
       e.stopImmediatePropagation(); lanzarPopupPremium(e.target,e.target.id);
