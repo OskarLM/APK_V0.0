@@ -226,7 +226,7 @@ const renderizarBarrasGraficos = (f) => {
       <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:5px">
         <span>${esc(cat)}</span><b>${val.toFixed(2)} €</b>
       </div>
-      <div style="width:${(val/max)*100}%;height:16px;display:flex;background:#000;border-radius:8px;overflow:hidden;border:1px solid rgba(212,175,55,.2)">
+  <div class="bar-flex" style="width:${(val/max)*100}%">
         ${esCasa
           ? `<div style="width:100%;background:var(--success)"></div>`
           : `<div style="width:${(t1/val)*100}%;background:var(--electric-blue)"></div>
