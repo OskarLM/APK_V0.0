@@ -401,16 +401,16 @@ function renderizarGraficos2() {
     sumaMes.set(k, (sumaMes.get(k) || 0) + (Number(mov.imp) || 0));
   }
 
-  // 5) Preparar escala visual
+  // 5) Escala y helpers
   const valores = meses.map(m => sumaMes.get(m.key) || 0);
   const maxAbs = Math.max(...valores.map(v => Math.abs(v)), 1);
 
-  const alto = 180;                 // coincide con .g2-chart { height:180px }
-  const mitad = alto / 2;           // baseline visual
-  const maxDespl = Math.max(mitad - 8, 40);  // margen superior/inf para redondeos
-  const minBar = 4;                 // altura mínima de columna para evitar que “desaparezca” con valores muy pequeños
+  const alto   = 180;                 // coincide con .g2-chart { height:180px }
+  const mitad  = alto / 2;            // baseline visual
+  const maxDespl = Math.max(mitad - 8, 40);   // margen para redondeos y labels
+  const minBar = 4;                   // altura mínima visible
 
-  // === COLORES V1.0 (igual que Gráfico 1) ===
+  // Colores para positivos (igual que Gráficos 1)
   const colorPositivo = (v) => {
     const abs = Math.abs(v);
     if (abs <= 50)  return "var(--electric-blue)";
@@ -419,7 +419,15 @@ function renderizarGraficos2() {
     return "var(--danger)";
   };
 
-  // 6) Render
+  const mesesCorta = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const fmtEuro = (n) => {
+    const val = Number(n) || 0;
+    const sign = val >= 0 ? "+" : "−";
+    const abs = Math.abs(val).toFixed(2).replace(".", ",");
+    return `${sign}${abs} €`;
+  };
+
+  // 6) Render: columnas + tooltip
   let html = `
     <h2 style="color:var(--primary);font-size:18px;text-align:center">EVOLUCIÓN (13 MESES)</h2>
     <div class="g2-wrap">
@@ -427,21 +435,24 @@ function renderizarGraficos2() {
         <div class="g2-baseline"></div>
   `;
 
-  const mesesCorta = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-
   for (const m of meses){
-    const v = sumaMes.get(m.key) || 0;     // valor del mes
+    const v   = sumaMes.get(m.key) || 0;       // valor del mes
     const abs = Math.abs(v);
     const h   = Math.max(minBar, (abs / maxAbs) * maxDespl); // altura de la barra
-    const isPos = v >= 0;
+    const pos = v >= 0;
 
-    const color = isPos ? colorPositivo(v) : "var(--danger)";
+    const color = pos ? colorPositivo(v) : "var(--danger)";
     const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
-    const label = mesesCorta[mesIdx];
+    const label  = mesesCorta[mesIdx];
+
+    // Tooltip: arriba de baseline para positivos, abajo para negativos
+    const tipClass = pos ? 'tip-pos' : 'tip-neg';
+    const tipText  = `${label} ${m.d.getFullYear()}: ${fmtEuro(v)}`;
 
     html += `
-      <div class="g2-col">
-        <div class="g2-bar ${isPos ? 'pos' : 'neg'}" style="height:${h}px; background:${color};"></div>
+      <div class="g2-col" data-key="${m.key}">
+        <div class="g2-bar ${pos ? 'pos' : 'neg'}" data-h="${h}" style="height:0px;background:${color};"></div>
+        <div class="g2-tip ${tipClass}">${tipText}</div>
         <div class="g2-label">${label}</div>
       </div>
     `;
@@ -449,7 +460,41 @@ function renderizarGraficos2() {
 
   html += `</div></div>`;
   lista.innerHTML += html;
+
+  // 7) Animación de altura: de 0px → target (data-h)
+  requestAnimationFrame(()=>{
+    document.querySelectorAll('.g2-chart .g2-bar').forEach(el=>{
+      const target = parseFloat(el.dataset.h) || 0;
+      el.style.height = `${target}px`;
+    });
+  });
+
+  // 8) Tooltip táctil/click: alterna la visibilidad y cierra los demás
+  const chart = lista.querySelector('.g2-chart');
+  if (!chart) return;
+
+  // Evitar múltiples bindings en re-render
+  if (!chart.dataset.tipBound){
+    chart.addEventListener('click', (ev)=>{
+      const col = ev.target.closest('.g2-col');
+      if (!col) return;
+      // Cerrar otras
+      chart.querySelectorAll('.g2-col.show-tip').forEach(c => { if (c!==col) c.classList.remove('show-tip'); });
+      // Alternar actual
+      col.classList.toggle('show-tip');
+    });
+
+    // Cerrar al hacer tap fuera del gráfico
+    document.addEventListener('click', (ev)=>{
+      if (!chart.contains(ev.target)) {
+        chart.querySelectorAll('.g2-col.show-tip').forEach(c => c.classList.remove('show-tip'));
+      }
+    });
+
+    chart.dataset.tipBound = '1';
+  }
 }
+
 /* ==========================
    FORMULARIO / CRUD
 ========================== */
