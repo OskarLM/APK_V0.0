@@ -1283,5 +1283,4 @@ window.dropboxSignOut = dropboxSignOut;
 
 // Utilidades backup
 window.createAndStoreLocalBackup = createAndStoreLocalBackup;
-console.log("Borrando tokens de Dropbox...");
-localStorage.removeItem('dbx_tokens');
+
