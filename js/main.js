@@ -32,7 +32,7 @@ let hideCasa          = false;  // toggle del botón Casa
 // Anclajes medidos en MOVIMIENTOS para reutilizar en G1/G2
 let footerAnchors = {
   leftX: null,     // posición X (px) del botón Gráficos en Movimientos
-  centerX: null,   // posición X (px) del botón "+" en Movimientos
+  centerX: null,   // posición X (px) del botón "+" en Movimientos (referencia)
   size: 65         // tamaño base del .plus (fallback)
 };
 
@@ -77,7 +77,7 @@ const buildCanonIndex = (preferida=[], secundaria=[]) => {
   return map;
 };
 
-// ⚠️ IMPORTANTE: La función esc(s) se usa desde utils.js (se elimina duplicado aquí)
+// ⚠️ IMPORTANTE: la función esc(s) se usa desde utils.js (no duplicamos aquí)
 
 /* ==========================
    Helper: debounce (rendimiento, sin cambiar UX)
@@ -271,6 +271,39 @@ function layoutFooterReset(btnLeft, btnCenter, btnRight){
     b.style.opacity = "1";
   });
 }
+
+/* ==========================
+   CENTRADO REAL (post‑layout)
+========================== */
+function _recentrarCasa(container, btnLeft, btnCenter, btnRight, size = 65) {
+  if (!container || !btnLeft || !btnCenter) return;
+
+  const fr = container.getBoundingClientRect();
+  const l  = btnLeft.getBoundingClientRect();
+
+  // Si hay botón derecho visible, úsalo; si no, usamos anclaje estimado del "centerX"
+  const rightIsVisible = !!(btnRight && btnRight.style.display !== 'none' && btnRight.style.pointerEvents !== 'none' && btnRight.style.opacity !== '0');
+  let rLeft;
+  if (rightIsVisible) {
+    const r = btnRight.getBoundingClientRect();
+    rLeft = r.left - fr.left;
+  } else {
+    // estimación del futuro botón derecho basada en los anclajes capturados o centro del contenedor
+    const fallback = (container.clientWidth / 2) - (size / 2);
+    rLeft = (footerAnchors.centerX != null) ? footerAnchors.centerX : fallback;
+  }
+
+  const leftCenter  = (l.left - fr.left) + size / 2;
+  const rightCenter = rLeft + size / 2;
+  const casaCenter  = (leftCenter + rightCenter) / 2;
+  const casaLeft    = Math.round(casaCenter - size / 2);
+
+  btnCenter.style.left = `${casaLeft}px`;
+}
+
+/* ==========================
+   LAYOUTS (G1 / G2) con centrado real
+========================== */
 function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
 
@@ -283,27 +316,23 @@ function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   const xLeft = (footerAnchors.leftX   != null) ? footerAnchors.leftX   : 20;
   const xG2   = (footerAnchors.centerX != null) ? footerAnchors.centerX : ((container.clientWidth/2) - (SIZE/2));
 
-  // === CENTRADO REAL DEL BOTÓN CASA (usando centros visuales) ===
-  const centerLeft = xLeft + SIZE / 2;
-  const centerG2   = xG2   + SIZE / 2;
-  const centerCasa = (centerLeft + centerG2) / 2;
-  const xCasa      = Math.round(centerCasa - SIZE / 2);
-
   [btnLeft, btnCenter, btnRight].forEach(b=>{
     b.style.position = 'absolute';
     b.style.top = '50%';
     b.style.transform = 'translateY(-50%)';
   });
 
+  // Posicionamiento inicial
   btnLeft.style.left   = `${xLeft}px`;
-  btnCenter.style.left = `${xCasa}px`;
-
-  // G2 visible y clicable
-  btnRight.style.left         = `${xG2}px`;
+  btnRight.style.left  = `${xG2}px`;
   btnRight.style.display      = '';
   btnRight.style.opacity      = '1';
   btnRight.style.pointerEvents= 'auto';
+
+  // Ajuste final de centrado real del botón CASA
+  _recentrarCasa(container, btnLeft, btnCenter, btnRight, SIZE);
 }
+
 function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
 
@@ -314,25 +343,22 @@ function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
   const xLeft = (footerAnchors.leftX   != null) ? footerAnchors.leftX   : 20;
   const xG2   = (footerAnchors.centerX != null) ? footerAnchors.centerX : ((container.clientWidth/2) - (SIZE/2));
 
-  // === CENTRADO REAL DEL BOTÓN CASA (usando centros visuales) ===
-  const centerLeft = xLeft + SIZE / 2;
-  const centerG2   = xG2   + SIZE / 2;
-  const centerCasa = (centerLeft + centerG2) / 2;
-  const xCasa      = Math.round(centerCasa - SIZE / 2);
-
   [btnLeft, btnCenter, btnRight].forEach(b=>{
     b.style.position = 'absolute';
     b.style.top = '50%';
     b.style.transform = 'translateY(-50%)';
   });
 
+  // Coloca el izquierdo (visible)
   btnLeft.style.left   = `${xLeft}px`;
-  btnCenter.style.left = `${xCasa}px`;
 
-  // Botón derecho oculto en G2
+  // Oculta el derecho en G2
   btnRight.style.opacity      = '0';
   btnRight.style.left         = `-9999px`;
   btnRight.style.pointerEvents= 'none';
+
+  // Centrar el botón CASA frente al anclaje del derecho (virtual)
+  _recentrarCasa(container, btnLeft, btnCenter, btnRight, SIZE);
 }
 
 /* ==========================
