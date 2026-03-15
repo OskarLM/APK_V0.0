@@ -1372,3 +1372,163 @@ window.abrirDetalleMovs = abrirDetalleMovs;
 // Backups (mantienen nombre pero son locales)
 window.guardarCopiaEnOneDrive = guardarCopiaEnOneDrive;
 window.restaurarCopiaDeOneDrive = restaurarCopiaDeOneDrive;
+/**** ==========================
+      DROPBOX (PKCE + API v2) PARA APK_V0.0
+========================== ****/
+
+// Config
+const DBX_APP_KEY = 'pow1k3kk53abk75';
+const DBX_REDIRECT_URI = 'https://oskarlm.github.io/APK_V0.0/auth/dropbox/callback';
+const DBX_FILE_PATH = '/mis_gastos_backup.json'; // en App folder o Full, según creaste la app
+const DBX_OAUTH_AUTHORIZE = 'https://www.dropbox.com/oauth2/authorize';
+const DBX_OAUTH_TOKEN      = 'https://api.dropboxapi.com/oauth2/token';
+const DBX_CONTENT          = 'https://content.dropboxapi.com/2';
+
+// Helpers PKCE
+function dbx_b64Url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function dbx_sha256Base64Url(text) {
+  const data = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return dbx_b64Url(new Uint8Array(hash));
+}
+function dbx_randomString(len=64) {
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => ('0'+b.toString(16)).slice(-2)).join('');
+}
+
+// Token storage
+function dbx_getTokens(){ try {return JSON.parse(localStorage.getItem('dbx_tokens')||'{}');} catch { return null; } }
+function dbx_setTokens(t){ localStorage.setItem('dbx_tokens', JSON.stringify(t||{})); }
+function dbx_clearTokens(){ localStorage.removeItem('dbx_tokens'); }
+
+// Iniciar login
+async function dropboxStartLogin(){
+  const code_verifier  = dbx_randomString(64);
+  const code_challenge = await dbx_sha256Base64Url(code_verifier);
+  sessionStorage.setItem('dbx_code_verifier', code_verifier);
+
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: DBX_APP_KEY,
+    redirect_uri: DBX_REDIRECT_URI,
+    code_challenge: code_challenge,
+    code_challenge_method: 'S256',
+    token_access_type: 'offline' // refresh_token
+    // scope: 'files.content.write files.content.read files.metadata.read' // si activaste scopes finos
+  });
+  window.location.href = `${DBX_OAUTH_AUTHORIZE}?${params.toString()}`;
+}
+
+// Refresh si caduca
+async function dbx_getValidAccessToken(){
+  let t = dbx_getTokens();
+  if (!t) return null;
+  if (t.access_token && t.expires_at && Date.now() < t.expires_at) return t.access_token;
+
+  if (t.refresh_token) {
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: DBX_APP_KEY,
+      refresh_token: t.refresh_token
+    });
+    const r = await fetch(DBX_OAUTH_TOKEN, {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body
+    });
+    if (!r.ok) { dbx_clearTokens(); return null; }
+    const j = await r.json();
+    const expires_at = Date.now() + (j.expires_in ? j.expires_in*1000 : 3600*1000);
+    const saved = { ...t, access_token: j.access_token, expires_in: j.expires_in, expires_at };
+    dbx_setTokens(saved);
+    return saved.access_token;
+  }
+  return t.access_token || null;
+}
+
+// Subir (sobrescribir) el backup CIFRADO
+async function dropboxUploadEncryptedBackup(){
+  try{
+    const token = await dbx_getValidAccessToken();
+    if (!token) { alert('Conecta Dropbox primero.'); return; }
+
+    // Usa TU cifrado existente (ya lo tienes en main.js):
+    const enc = await encryptBackup(buildBackupObject()); // {v, alg, iv, ct}
+    const payload = JSON.stringify(enc, null, 2);
+
+    const res = await fetch(`${DBX_CONTENT}/files/upload`, {
+      method:'POST',
+      headers:{
+        'Authorization': `Bearer ${token}`,
+        'Dropbox-API-Arg': JSON.stringify({
+          path: DBX_FILE_PATH,
+          mode: { '.tag':'overwrite' }, // SIEMPRE sobreescribe
+          mute: true
+        }),
+        'Content-Type':'application/octet-stream'
+      },
+      body: new TextEncoder().encode(payload)
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator?.();
+    alert('✅ Copia subida a Dropbox.');
+  }catch(e){
+    console.error(e);
+    alert('No se pudo subir a Dropbox.');
+  }
+}
+
+// Descargar y restaurar
+async function dropboxDownloadAndRestore(){
+  try{
+    const token = await dbx_getValidAccessToken();
+    if (!token) { alert('Conecta Dropbox primero.'); return; }
+
+    const res = await fetch(`${DBX_CONTENT}/files/download`, {
+      method:'POST',
+      headers:{
+        'Authorization': `Bearer ${token}`,
+        'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH })
+      }
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    const text = await res.text();
+    let payload;
+    try { payload = JSON.parse(text); } catch { throw new Error('El archivo no es JSON.'); }
+
+    const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
+    if (!data || !data.datos) throw new Error('Formato de copia inválido');
+
+    movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
+    catExtra    = Array.isArray(data.datos.catExtra)    ? data.datos.catExtra    : [];
+    subMaestra  = Array.isArray(data.datos.subMaestra)  ? data.datos.subMaestra  : [];
+    localStorage.setItem('movimientos', JSON.stringify(movimientos));
+    localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+    localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator?.();
+
+    actualizarListas?.(); resetPagina?.(); mostrar?.();
+    alert('✅ Copia restaurada desde Dropbox.');
+  }catch(e){
+    console.error(e);
+    alert('No se pudo descargar/restaurar desde Dropbox.');
+  }
+}
+
+// Desconectar Dropbox (opcional)
+function dropboxSignOut(){
+  dbx_clearTokens();
+  alert('Dropbox desconectado en este dispositivo.');
+}
+
+// Exponer a window para botones
+window.dropboxStartLogin = dropboxStartLogin;
+window.dropboxUploadEncryptedBackup = dropboxUploadEncryptedBackup;
+window.dropboxDownloadAndRestore = dropboxDownloadAndRestore;
+window.dropboxSignOut = dropboxSignOut;
