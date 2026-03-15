@@ -29,10 +29,13 @@ let filtradosGlobal   = [];
 let pinActual         = "";
 let hideCasa          = false;  // toggle del botón Casa
 
+// Modo pantalla completa (oculta barra superior de filtros + bloque inferior completo)
+let fullscreenMode = false;
+
 // Anclajes medidos en MOVIMIENTOS para reutilizar en G1/G2
 let footerAnchors = {
   leftX: null,     // posición X (px) del botón Gráficos en Movimientos
-  centerX: null,   // posición X (px) del botón "+" en Movimientos (referencia)
+  centerX: null,   // posición X (px) del botón "+" en Movimientos (referencia para ancla derecha virtual)
   size: 65         // tamaño base del .plus (fallback)
 };
 
@@ -96,9 +99,9 @@ function debounce(fn, delay = 150) {
 async function ensureDefaultPinHash() {
   const pinHash = localStorage.getItem(PIN_STORAGE_KEY);
   if (!pinHash) {
-    let defaultPin = "7143";            // misma política que antes
+    let defaultPin = "7143";
     const h = await sha256(defaultPin);
-    defaultPin = null;                  // higiene: soltar referencia
+    defaultPin = null;
     localStorage.setItem(PIN_STORAGE_KEY, h);
   }
 }
@@ -161,13 +164,80 @@ const biometricAuth = async () => {
     console.error(e); alert("Error de biometría");
   }
 };
+
+/* ==========================
+   INICIALIZACIÓN Y GESTOS (DOBLE‑TAP / DOBLE‑CLICK)
+========================== */
 document.addEventListener('DOMContentLoaded', () => {
   ensureDefaultPinHash().catch(console.error);
   updateDots();
+
+  // Evitar double-tap zoom en móviles
+  if (document.documentElement) document.documentElement.style.touchAction = 'manipulation';
+  if (document.body) document.body.style.touchAction = 'manipulation';
+
+  // Doble‑tap / doble‑click para alternar pantalla completa (excepto en controles interactivos)
+  let _lastTap = 0;
+  const TAP_WINDOW = 250; // ms
+  const filtrosSel = '.filtros-wrapper';
+  const footerSel  = '.footer-controles';
+
+  const isInteractive = (el) => {
+    if (!el) return false;
+    // Si toca dentro de filtros o footer, ignoramos el gesto (usabilidad)
+    if (el.closest(filtrosSel) || el.closest(footerSel)) return true;
+    // Controles típicos
+    return !!el.closest('button, a, select, input, textarea, label, [role="button"], [tabindex]');
+  };
+
+  const applyUIVisibility = () => {
+    const filtros = document.querySelector(filtrosSel);
+    const footer  = document.querySelector(footerSel);
+    if (filtros) filtros.style.display = fullscreenMode ? 'none' : '';
+    if (footer)  footer.style.display  = fullscreenMode ? 'none' : '';
+  };
+
+  const toggleFullscreenUI = () => {
+    fullscreenMode = !fullscreenMode;
+    applyUIVisibility();
+    // Reacomodar footer si reaparece en vistas de gráficos
+    requestAnimationFrame(() => mostrar());
+    // Opcional: persistencia en sesión
+    try { sessionStorage.setItem('ui_fullscreen', fullscreenMode ? '1' : '0'); } catch {}
+  };
+
+  // Restaurar estado de fullscreen de la sesión anterior (opcional)
+  try {
+    const prev = sessionStorage.getItem('ui_fullscreen');
+    if (prev === '1') { fullscreenMode = true; applyUIVisibility(); }
+  } catch {}
+
+  // Handler táctil (doble‑tap)
+  window.addEventListener('touchstart', (ev) => {
+    const t = Date.now();
+    const target = ev.target;
+    if (isInteractive(target)) return; // no interferir con controles
+
+    if (t - _lastTap <= TAP_WINDOW) {
+      ev.preventDefault();
+      toggleFullscreenUI();
+      _lastTap = 0;
+    } else {
+      _lastTap = t;
+    }
+  }, { passive: false });
+
+  // Handler ratón (doble‑click)
+  window.addEventListener('dblclick', (ev) => {
+    const target = ev.target;
+    if (isInteractive(target)) return;
+    ev.preventDefault();
+    toggleFullscreenUI();
+  }, { passive: false });
 });
 
 /* ==========================
-   ICONOS SVG (MISMAS IMÁGENES)
+   ICONOS SVG
 ========================== */
 function iconBars(){
   return `
@@ -267,34 +337,28 @@ function layoutFooterReset(btnLeft, btnCenter, btnRight){
     b.style.top = "";
     b.style.transform = "";
     b.style.opacity = "1";
-    // No tocamos width/height aquí (los normaliza el helper)
   });
 }
 
 /* ==========================
-   Normalización de tamaños (todos = VOLVER)
+   Normalización tamaños (todos = VOLVER)
 ========================== */
 function _normalizarTamaniosFooter(btnLeft, btnCenter, btnRight) {
   if (!btnLeft || !btnCenter || !btnRight) return;
-  // Tomar el tamaño REAL de VOLVER
   const r = btnLeft.getBoundingClientRect();
   const size = Math.round(Math.max(r.width, r.height));
-
   [btnCenter, btnRight].forEach(b => {
     if (!b) return;
     b.style.width = size + 'px';
     b.style.height = size + 'px';
     b.style.borderRadius = '50%';
   });
-
   return size;
 }
 
 /* ==========================
-   CENTRADO REAL (post‑layout, con medición exacta)
+   CENTRADO REAL (post‑layout, medición exacta)
 ========================== */
-// Centra CASA exactamente entre los centros de VOLVER (izq) y G2 (der).
-// Doble rAF: 1º asegura layout aplicado; 2º asegura que el cambio de tamaño ya impactó antes de medir.
 function _recentrarCasa(container, btnLeft, btnCenter, btnRight) {
   if (!container || !btnLeft || !btnCenter) return;
 
@@ -306,7 +370,6 @@ function _recentrarCasa(container, btnLeft, btnCenter, btnRight) {
       const l  = btnLeft.getBoundingClientRect();
       const c  = btnCenter.getBoundingClientRect();
 
-      // Si el derecho está visible lo usamos; si no, ancla virtual basada en footerAnchors.centerX
       let rightRect;
       const visible = !!(btnRight &&
                          btnRight.style.display !== 'none' &&
@@ -321,12 +384,10 @@ function _recentrarCasa(container, btnLeft, btnCenter, btnRight) {
         rightRect = { left: fr.left + estLeft, width: c.width };
       }
 
-      // Centros reales respecto al contenedor
       const centerLeft   = (l.left - fr.left) + (l.width  / 2);
       const centerRight  = (rightRect.left - fr.left) + (rightRect.width / 2);
       const centerCasa   = (centerLeft + centerRight) / 2;
 
-      // Posición LEFT para alinear el centro de CASA con el punto medio
       const casaLeft = Math.round(centerCasa - (c.width / 2));
       btnCenter.style.left = `${casaLeft}px`;
     });
@@ -334,7 +395,7 @@ function _recentrarCasa(container, btnLeft, btnCenter, btnRight) {
 }
 
 /* ==========================
-   LAYOUTS (G1 / G2) con centrado real
+   LAYOUTS (G1 / G2)
 ========================== */
 function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
@@ -352,14 +413,16 @@ function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
     b.style.transform = 'translateY(-50%)';
   });
 
-  // Posicionamiento inicial (izq y der). CASA se corrige con medición real.
   btnLeft.style.left   = `${xLeft}px`;
   btnRight.style.left  = `${xG2}px`;
   btnRight.style.display      = '';
   btnRight.style.opacity      = '1';
   btnRight.style.pointerEvents= 'auto';
 
-  // Centrado exacto de CASA (tras normalización de tamaños)
+  // Respetar modo pantalla completa (bloque inferior entero)
+  const cont = document.querySelector('.footer-controles');
+  if (cont) cont.style.display = fullscreenMode ? 'none' : '';
+
   _recentrarCasa(container, btnLeft, btnCenter, btnRight);
 }
 
@@ -378,13 +441,14 @@ function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
     b.style.transform = 'translateY(-50%)';
   });
 
-  // Coloca el izquierdo; derecho oculto pero con ancla virtual via footerAnchors.centerX
   btnLeft.style.left   = `${xLeft}px`;
   btnRight.style.opacity      = '0';
   btnRight.style.left         = `-9999px`;
   btnRight.style.pointerEvents= 'none';
 
-  // Centrado exacto de CASA frente al ancla virtual
+  const cont = document.querySelector('.footer-controles');
+  if (cont) cont.style.display = fullscreenMode ? 'none' : '';
+
   _recentrarCasa(container, btnLeft, btnCenter, btnRight);
 }
 
@@ -395,11 +459,10 @@ function getBalanceRightOffset(container){
   try{
     const resetBtn = Array.from(document.querySelectorAll('.footer-controles .btn-small'))
       .find(b => /reset/i.test((b.textContent||'').trim()));
-    if (!resetBtn || !container) return 20; // fallback padding
+    if (!resetBtn || !container) return 20;
     const contRect  = container.getBoundingClientRect();
     const resetRect = resetBtn.getBoundingClientRect();
-    const offset = Math.max(0, Math.round(contRect.right - resetRect.right));
-    return offset;
+    return Math.max(0, Math.round(contRect.right - resetRect.right));
   }catch(e){ return 20; }
 }
 function layoutBalanceFixed(container, balanceEl){
@@ -426,6 +489,12 @@ function layoutBalanceReset(balanceEl){
 function mostrar() {
   const movDiv = document.getElementById("movimientos");
   if (!movDiv || movDiv.dataset.permiso !== "OK") return;
+
+  // Garantizar visibilidad de filtros/footer según fullscreenMode
+  const filtros = document.querySelector('.filtros-wrapper');
+  const footerB = document.querySelector('.footer-controles');
+  if (filtros) filtros.style.display = fullscreenMode ? 'none' : '';
+  if (footerB) footerB.style.display = fullscreenMode ? 'none' : '';
 
   const fsIds = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"];
   const fs = fsIds.map(id => { const el = document.getElementById(id); return el ? el.value : "TODOS"; });
@@ -469,17 +538,15 @@ function mostrar() {
   const modo = movDiv.dataset.modo || "lista";
   const aplicarEstadoCasa = () => { if (btnCenter) btnCenter.classList.toggle("active", !!hideCasa); };
 
-  // Reset handlers/clases/visibilidad controlada por modo
   [btnLeft, btnCenter, btnRight].forEach(b=>{
     if (!b) return;
     b.onclick = null; b.classList.remove("plus-like","btn-house-anim","active");
     b.style.opacity = "1";
-    b.style.display = ""; // re-exponer por si venía oculto de otro modo
+    b.style.display = "";
   });
   layoutFooterReset(btnLeft, btnCenter, btnRight);
 
   if (modo === "graficos") {
-    // G1 — 3 botones
     if (btnLeft){   btnLeft.innerHTML = iconBack();  btnLeft.onclick = () => setModo("lista"); }
     if (btnCenter){ btnCenter.innerHTML = iconCasa(); btnCenter.classList.add("btn-house-anim");
                     btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
@@ -487,32 +554,33 @@ function mostrar() {
                     btnRight.innerHTML  = iconGraph2(); btnRight.onclick = () => setModo("graficos2"); }
 
     layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
-    layoutBalanceFixed(footerRow, balanceEl);  // balance a la derecha (alineado con RESET)
+    layoutBalanceFixed(footerRow, balanceEl);
 
   } else if (modo === "graficos2") {
-    // G2 — 2 botones (izq+centro). Derecho oculto.
     if (btnLeft){   btnLeft.innerHTML = iconBack();  btnLeft.onclick = () => setModo("graficos"); }
     if (btnCenter){ btnCenter.innerHTML = iconCasa(); btnCenter.classList.add("btn-house-anim");
                     btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
     if (btnRight){  btnRight.innerHTML = ""; btnRight.onclick = null; btnRight.style.display = "none"; btnRight.style.pointerEvents = "none"; }
 
     layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
-    layoutBalanceFixed(footerRow, balanceEl);  // balance a la derecha (alineado con RESET)
+    layoutBalanceFixed(footerRow, balanceEl);
 
-  } else { // LISTA — MOVIMIENTOS V0.0 EXACTA
+  } else { // LISTA
     if (btnLeft){   btnLeft.innerHTML = iconBars(); btnLeft.classList.add("plus-like"); btnLeft.onclick = () => setModo("graficos"); }
     if (btnCenter){ btnCenter.innerHTML = "+"; btnCenter.onclick = () => abrirFormulario(); }
     if (btnRight){
-      // En Movimientos el 3º botón NO debe verse
       btnRight.innerHTML = "";
       btnRight.onclick = null;
       btnRight.style.display = "none";
-      // Aseguramos que no queda absolutizado de otra vista:
       btnRight.style.position = ""; btnRight.style.left = ""; btnRight.style.top = "";
       btnRight.style.transform = ""; btnRight.style.opacity = "0";
     }
     layoutFooterReset(btnLeft, btnCenter, btnRight);
-    layoutBalanceReset(balanceEl);             // balance vuelve al grid normal
+    layoutBalanceReset(balanceEl);
+
+    // Respetar modo pantalla completa también en lista
+    const cont = document.querySelector('.footer-controles');
+    if (cont) cont.style.display = fullscreenMode ? 'none' : '';
   }
 
   // Render contenido
@@ -540,7 +608,7 @@ function mostrar() {
   updateBackupIndicator();
 }
 
-// Recalcular en resize/orientación (con debounce para rendimiento)
+// Recalcular en resize/orientación (con debounce)
 window.addEventListener('resize', debounce(function(){
   const movDiv = document.getElementById("movimientos");
   if (!movDiv) return;
@@ -714,7 +782,7 @@ function renderizarGraficos2() {
   `;
   for (const m of meses){
     const v = sumaMes.get(m.key) || 0;
-    const h = Math.max(minBar, (Math.abs(v)/maxAbs) * 80); // 80px aprox de mitad
+    const h = Math.max(minBar, (Math.abs(v)/maxAbs) * 80);
     const pos = v >= 0;
     const color = colorPorMes(v);
     const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
@@ -779,7 +847,7 @@ const llenar = (id, base, extra, pre = "", opts = {}) => {
     if (ocultarMeses) values = values.filter(v => !NOMINA_SUBS.includes(v));
   }
   values.sort((a,b)=>a.localeCompare(b,'es')).forEach(v=>{
-    s.innerHTML += `<option value="${v}" ${v === pre ? 'selected' : ''}>${v}</option>`;
+    s.innerHTML = s.innerHTML + `<option value="${v}" ${v === pre ? 'selected' : ''}>${v}</option>`;
   });
   if (pre && !values.includes(pre)) s.innerHTML += `<option value="${pre}" selected hidden>${pre}</option>`;
   if (id !== "origen") s.innerHTML += `<option value="+">+ Añadir nuevo...</option>`;
@@ -1011,7 +1079,7 @@ const init = () => {
   mostrar();
 };
 
-// Scroll infinito (con candado + passive para rendimiento)
+// Scroll infinito (con candado + passive)
 let _renderLock = false;
 window.addEventListener('scroll', () => {
   const movDiv = document.getElementById("movimientos");
@@ -1370,7 +1438,6 @@ if ('serviceWorker' in navigator) {
 /* ==========================
    COMPAT (RESET) + EXPORTAR GLOBAL
 ========================== */
-// No-op para compatibilidad con el botón RESET del HTML
 function resetTotal(){ /* sin operación */ }
 
 // PIN
