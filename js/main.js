@@ -1,4 +1,4 @@
-// === main.js (corregido + popup Nómina) ===
+// === main.js (corregido + popup Nómina + fix Guardar) ===
 // Guard contra doble carga del script (evita redeclaraciones si el SW/HTML lo inyecta dos veces)
 if (window.__APP_LOADED__) {
   // Ya cargado: no re-evaluar
@@ -125,6 +125,10 @@ if (window.__APP_LOADED__) {
   // ==========================
   // PIN + BIOMETRÍA (básico)
   // ==========================
+  const PIN_STORAGE_KEY   = 'pin_hash_v1';
+  const PIN_ATTEMPTS_KEY  = 'pin_attempts_v1';
+  const PIN_COOLDOWN_KEY  = 'pin_cooldown_until';
+
   async function ensureDefaultPinHash() {
     const pinHash = localStorage.getItem(PIN_STORAGE_KEY);
     if (!pinHash) {
@@ -134,6 +138,16 @@ if (window.__APP_LOADED__) {
       localStorage.setItem(PIN_STORAGE_KEY, h);
     }
   }
+  async function sha256(str){
+    const data = new TextEncoder().encode(str);
+    const buf  = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  function getAttempts(){ return parseInt(localStorage.getItem(PIN_ATTEMPTS_KEY)||'0',10) || 0; }
+  function setAttempts(n){ localStorage.setItem(PIN_ATTEMPTS_KEY, String(n)); }
+  function setCooldown(seconds){ localStorage.setItem(PIN_COOLDOWN_KEY, String(Date.now()+seconds*1000)); }
+  function isInCooldown(){ const until = parseInt(localStorage.getItem(PIN_COOLDOWN_KEY)||'0',10); return Math.max(0, until - Date.now()); }
+
   const updateDots = () => { const dots=document.querySelectorAll('.dot'); for(let i=0;i<dots.length;i++) dots[i].classList.toggle('filled', i < pinActual.length); };
   const clearPin = () => { pinActual = ""; updateDots(); };
   function unlock() {
@@ -365,33 +379,55 @@ if (window.__APP_LOADED__) {
     const listaDiv = document.getElementById("lista");
     if (modo === "graficos" || modo === "graficos2") {
       listaDiv.innerHTML = "";
-      if (modo === "graficos") renderizarBarrasGraficos((fs[0] === "TODOS") ? 12 : 1); else renderizarGraficos2();
+      if (modo === "graficos") renderizarBarrasGraficos((fs[0] === "TODOS") ? 12 : 1);
+      else renderizarGraficos2();
     } else {
-      const rows = filtradosGlobal.slice(0, registrosVisibles).map(m => `
+      const rows = filtradosGlobal
+        .slice(0, registrosVisibles)
+        .map(m => `
         <div class='card' onclick="abrirFormulario('${m.id}')" style="border-left-color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">
           <div class="meta">${esc(m.f.split("-").reverse().join("/"))} • ${esc(m.o)}</div>
           <b>${esc(m.c)} - ${esc(m.s)}</b>
-          ${m.d ? `<div style=\"font-size:12px;opacity:.8\">${esc(m.d)}</div>` : ''}
+          ${m.d ? `<div style="font-size:12px;opacity:.8">${esc(m.d)}</div>` : ''}
           <div class="monto" style="color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">${(Number(m.imp)||0).toFixed(2)} €</div>
         </div>`).join("");
-      listaDiv.innerHTML = rows; const loader = document.getElementById("loader"); if (loader) loader.style.display = "none";
+      listaDiv.innerHTML = rows;
+      const loader = document.getElementById("loader"); if (loader) loader.style.display = "none";
     }
     ensureBackupIndicator(); updateBackupIndicator();
   }
   window.addEventListener('resize', debounce(function(){
-    const movDiv = document.getElementById("movimientos"); if (!movDiv) return; const modo = movDiv.dataset.modo || "lista"; if (modo !== "graficos" && modo !== "graficos2") return; const footerRow = document.querySelector(".footer-row"); const plus = document.querySelectorAll(".footer-row .plus"); const btnLeft = plus[0] || null; const btnCenter = plus[1] || null; const btnRight = plus[2] || null; const balanceEl = document.getElementById('balance'); if (modo === "graficos") layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight); else layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight); layoutBalanceFixed(footerRow, balanceEl);
+    const movDiv = document.getElementById("movimientos");
+    if (!movDiv) return; const modo = movDiv.dataset.modo || "lista";
+    if (modo !== "graficos" && modo !== "graficos2") return;
+    const footerRow = document.querySelector(".footer-row");
+    const plus = document.querySelectorAll(".footer-row .plus");
+    const btnLeft = plus[0] || null;
+    const btnCenter = plus[1] || null;
+    const btnRight = plus[2] || null;
+    const balanceEl = document.getElementById('balance');
+    if (modo === "graficos") layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
+    else layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
+    layoutBalanceFixed(footerRow, balanceEl);
   }, 150));
 
   // ==========================
   // GRÁFICOS 1 (barras) + DRILL
   // ==========================
   function renderizarBarrasGraficos(f) {
-    const lista = document.getElementById("lista"); const elFC = document.getElementById("filtroCat"); const filtroCat = (elFC && elFC.value) || "TODAS";
-    let fuente = filtradosGlobal.slice(); if (hideCasa) fuente = fuente.filter(m => !isCasaCategory(m.c));
+    const lista = document.getElementById("lista");
+    const elFC = document.getElementById("filtroCat");
+    const filtroCat = (elFC && elFC.value) || "TODAS";
+    let fuente = filtradosGlobal.slice();
+    if (hideCasa) fuente = fuente.filter(m => !isCasaCategory(m.c));
     const totales = {};
-    if (filtroCat === "TODAS") { for (let m of fuente) if (m.imp < 0) totales[m.c] = (totales[m.c]||0) + Math.abs(m.imp); }
-    else { for (let m of fuente) if (m.imp < 0 && m.c === filtroCat) totales[m.s] = (totales[m.s]||0) + Math.abs(m.imp); }
-    const vals = Object.values(totales); const max = Math.max(...vals, 1);
+    if (filtroCat === "TODAS") {
+      for (let m of fuente) if (m.imp < 0) totales[m.c] = (totales[m.c]||0) + Math.abs(m.imp);
+    } else {
+      for (let m of fuente) if (m.imp < 0 && m.c === filtroCat) totales[m.s] = (totales[m.s]||0) + Math.abs(m.imp);
+    }
+    const vals = Object.values(totales);
+    const max = Math.max(...vals, 1);
     const titulo = (filtroCat === "TODAS") ? "ANÁLISIS DE GASTO POR CATEGORÍAS" : `SUBCATEGORÍAS DE ${filtroCat}`;
     let html = `
       <h2 style="color:var(--primary);font-size:18px;text-align:center">${titulo}</h2>
@@ -403,14 +439,18 @@ if (window.__APP_LOADED__) {
       </div>
     `;
     const items = Object.entries(totales).sort((a,b)=>b[1]-a[1]);
-    if (!items.length) { lista.innerHTML += html + `<div class="card" style="text-align:center;border:none"><div style="opacity:.8">No hay datos para los filtros seleccionados.</div></div>`; return; }
+    if (!items.length) {
+      lista.innerHTML += html + `<div class="card" style="text-align:center;border:none"><div style="opacity:.8">No hay datos para los filtros seleccionados.</div></div>`;
+      return;
+    }
     lista.innerHTML += html + items.map(([label,val])=>{
       const t1 = Math.min(val, 50*f),
             t2 = val > 50*f ? Math.min(val - 50*f ,150*f) : 0,
             t3 = val > 200*f ? Math.min(val - 200*f,300*f) : 0,
             t4 = val > 500*f ? (val - 500*f) : 0;
       return `
-      <div class="card" style="border:none;background:transparent;cursor:pointer" data-label="${esc(label)}" onclick="handleGraficoBarClick(this.dataset.label)">
+      <div class="card" style="border:none;background:transparent;cursor:pointer" data-label="${esc(label)}"
+           onclick="handleGraficoBarClick(this.dataset.label)">
         <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:5px">
           <span>${esc(label)}</span><b>${val.toFixed(2)} €</b>
         </div>
@@ -420,57 +460,140 @@ if (window.__APP_LOADED__) {
           <div style="width:${(t3/val)*100}%;background:var(--warning)"></div>
           <div style="width:${(t4/val)*100}%;background:var(--danger)"></div>
         </div>
-      </div>`; }).join("");
-  }
-  function handleGraficoBarClick(label){ const selCat = document.getElementById('filtroCat'); const actual = (selCat && selCat.value) || 'TODAS'; if (actual === 'TODAS') { if (selCat) selCat.value = label; resetPagina(); mostrar(); return; } abrirDetalleMovs(actual, label); }
-  function abrirDetalleMovs(categoria, subcategoria){ try { let base = filtradosGlobal.slice(); if (hideCasa) base = base.filter(m => !isCasaCategory(m.c)); const lista = base.filter(m => m.imp < 0 && m.c === categoria && m.s === subcategoria) .sort((a,b)=> new Date(b.f) - new Date(a.f)); const total = lista.reduce((acc,m)=>acc + Math.abs(m.imp), 0); const overlay = document.createElement('div'); overlay.className = 'premium-overlay'; overlay.innerHTML = `
-      <div class="premium-content" style="max-height:80vh;overflow:auto;text-align:left">
-        <div class="premium-title" style="text-align:center">${esc(categoria)} / ${esc(subcategoria)}</div>
-        <div style="font-weight:900;color:var(--primary);text-align:center;margin-bottom:10px">Total: ${total.toFixed(2)} €</div>
-        <div id="detalleLista">
-          ${ 
-            lista.length 
-            ? lista.map(m => `
-            <div class="card" style="margin:10px 0;border-left-color:var(--danger)">
-              <div class="meta">${esc(m.f.split("-").reverse().join("/"))} • ${esc(m.o)}</div>
-              ${m.d ? `<div style=\"font-size:13px;opacity:.9;margin-bottom:6px\">${esc(m.d)}</div>` : ''}
-              <div class="monto" style="color:var(--danger)">${Math.abs(m.imp).toFixed(2)} €</div>
-            </div>
-          `).join('') 
-            : `<div class="card" style="text-align:center;border:none;opacity:.8">No hay movimientos.</div>` 
-          }
-        </div>
-        <button class="btn-silver" id="cerrarDetalle">CERRAR</button>
       </div>
-      `; document.body.appendChild(overlay); overlay.querySelector('#cerrarDetalle').onclick = ()=> overlay.remove(); } catch (e) { console.error(e); alert("No se pudo abrir el detalle."); } }
+      `;
+    }).join("");
+  }
+  function handleGraficoBarClick(label){
+    const selCat = document.getElementById('filtroCat');
+    const actual = (selCat && selCat.value) || 'TODAS';
+    if (actual === 'TODAS') { if (selCat) selCat.value = label; resetPagina(); mostrar(); return; }
+    abrirDetalleMovs(actual, label);
+  }
+  function abrirDetalleMovs(categoria, subcategoria){
+    try {
+      let base = filtradosGlobal.slice();
+      if (hideCasa) base = base.filter(m => !isCasaCategory(m.c));
+      const lista = base.filter(m => m.imp < 0 && m.c === categoria && m.s === subcategoria)
+                        .sort((a,b)=> new Date(b.f) - new Date(a.f));
+      const total = lista.reduce((acc,m)=>acc + Math.abs(m.imp), 0);
+      const overlay = document.createElement('div');
+      overlay.className = 'premium-overlay';
+      overlay.innerHTML = `
+        <div class="premium-content" style="max-height:80vh;overflow:auto;text-align:left">
+          <div class="premium-title" style="text-align:center">${esc(categoria)} / ${esc(subcategoria)}</div>
+          <div style="font-weight:900;color:var(--primary);text-align:center;margin-bottom:10px">Total: ${total.toFixed(2)} €</div>
+          <div id="detalleLista">
+            ${
+              lista.length
+              ? lista.map(m => `
+                <div class="card" style="margin:10px 0;border-left-color:var(--danger)">
+                  <div class="meta">${esc(m.f.split("-").reverse().join("/"))} • ${esc(m.o)}</div>
+                  ${m.d ? `<div style="font-size:13px;opacity:.9;margin-bottom:6px">${esc(m.d)}</div>` : ''}
+                  <div class="monto" style="color:var(--danger)">${Math.abs(m.imp).toFixed(2)} €</div>
+                </div>
+              `).join('')
+              : `<div class="card" style="text-align:center;border:none;opacity:.8">No hay movimientos.</div>`
+            }
+          </div>
+          <button class="btn-silver" id="cerrarDetalle">CERRAR</button>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      overlay.querySelector('#cerrarDetalle').onclick = ()=> overlay.remove();
+    } catch (e) {
+      console.error(e); alert("No se pudo abrir el detalle.");
+    }
+  }
 
   // ==========================
   // GRÁFICOS 2 (columnas)
   // ==========================
   function renderizarGraficos2() {
-    const lista = document.getElementById("lista"); const oldChart = lista.querySelector('.g2-wrap'); if (oldChart) oldChart.remove();
-    const fsIds = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"]; const fs = fsIds.map(id => { const el = document.getElementById(id); return el ? el.value : "TODOS"; });
-    const hoy = new Date(); const meses = []; for (let i=12; i>=0; i--){ const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1); const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; meses.push({ d, key }); }
-    const filtraOtros = (m) => { const cC = fs[2] === "TODAS" || m.c === fs[2]; const cS = fs[3] === "TODAS" || m.s === fs[3]; const cO = fs[4] === "TODOS" || m.o === fs[4]; return cC && cS && cO; };
+    const lista = document.getElementById("lista");
+    const oldChart = lista.querySelector('.g2-wrap'); if (oldChart) oldChart.remove();
+    const fsIds = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"];
+    const fs = fsIds.map(id => { const el = document.getElementById(id); return el ? el.value : "TODOS"; });
+    const hoy = new Date();
+    const meses = [];
+    for (let i=12; i>=0; i--){
+      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      meses.push({ d, key });
+    }
+    const filtraOtros = (m) => {
+      const cC = fs[2] === "TODAS" || m.c === fs[2];
+      const cS = fs[3] === "TODAS" || m.s === fs[3];
+      const cO = fs[4] === "TODOS" || m.o === fs[4];
+      return cC && cS && cO;
+    };
     const base = (hideCasa ? movimientos.filter(mm => !isCasaCategory(mm.c)) : movimientos).filter(filtraOtros);
-    const sumaMes = new Map(); for (let mov of base) { const k = (mov.f || "").slice(0,7); if (!meses.some(x => x.key === k)) continue; sumaMes.set(k, (sumaMes.get(k) || 0) + (Number(mov.imp) || 0)); }
-    const valores = meses.map(m => sumaMes.get(m.key) || 0); const maxAbs = Math.max(...valores.map(v => Math.abs(v)), 1); const minBar = 4;
-    const colorPorMes = (t) => { if (t < 0) return "var(--danger)"; if (t <= 250) return "var(--warning)"; if (t <= 750) return "var(--success)"; return "var(--electric-blue)"; };
-    const mesesCorta = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]; const fmtEuro = (n) => { const v = Number(n)||0, s = v>=0?"+":"−", a = Math.abs(v).toFixed(2).replace(".",","); return `${s}${a} €`; };
+    const sumaMes = new Map();
+    for (let mov of base) {
+      const k = (mov.f || "").slice(0,7);
+      if (!meses.some(x => x.key === k)) continue;
+      sumaMes.set(k, (sumaMes.get(k) || 0) + (Number(mov.imp) || 0));
+    }
+    const valores = meses.map(m => sumaMes.get(m.key) || 0);
+    const maxAbs = Math.max(...valores.map(v => Math.abs(v)), 1);
+    const minBar = 4;
+    const colorPorMes = (t) => {
+      if (t < 0) return "var(--danger)";
+      if (t <= 250) return "var(--warning)";
+      if (t <= 750) return "var(--success)";
+      return "var(--electric-blue)";
+    };
+    const mesesCorta = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+    const fmtEuro = (n) => { const v = Number(n)||0, s = v>=0?"+":"−", a = Math.abs(v).toFixed(2).replace(".",","); return `${s}${a} €`; };
     let html = `
       <div class="g2-wrap">
         <div class="g2-chart" style="position:relative;height:180px;display:grid;grid-template-columns:repeat(13,1fr);gap:10px;align-items:center;margin-bottom:26px;">
           <div class="g2-baseline" style="position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(212,175,55,.35)"></div>
     `;
-    for (const m of meses){ const v = sumaMes.get(m.key) || 0; const h = Math.max(minBar, (Math.abs(v)/maxAbs) * 80); const pos = v >= 0; const color = colorPorMes(v); const mesIdx = new Date(m.key + "-01T00:00:00").getMonth(); const label = mesesCorta[mesIdx]; const tipText = `${label} ${m.d.getFullYear()}: ${fmtEuro(v)}`; html += `
+    for (const m of meses){
+      const v = sumaMes.get(m.key) || 0;
+      const h = Math.max(minBar, (Math.abs(v)/maxAbs) * 80);
+      const pos = v >= 0;
+      const color = colorPorMes(v);
+      const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
+      const label = mesesCorta[mesIdx];
+      const tipText = `${label} ${m.d.getFullYear()}: ${fmtEuro(v)}`;
+      html += `
       <div class="g2-col" data-key="${m.key}" style="position:relative;height:100%;">
         <div class="g2-bar ${pos ? 'pos' : 'neg'}" data-h="${h}" style="height:0px;background:${color};"></div>
         <div class="g2-tip ${pos ? 'tip-pos' : 'tip-neg'}">${tipText}</div>
         <div class="g2-label" style="position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--primary)">${label}</div>
-      </div>`; }
-    html += `</div></div>`; lista.insertAdjacentHTML('beforeend', html);
-    requestAnimationFrame(function(){ const bars = lista.querySelectorAll('.g2-chart .g2-bar'); for (let i=0;i<bars.length;i++){ const el = bars[i]; const target = parseFloat(el.getAttribute('data-h')) || 0; el.style.height = target + 'px'; } });
-    const chart = lista.querySelector('.g2-chart'); if (!chart) return; if (!chart.getAttribute('data-tipBound')){ chart.addEventListener('click', function(ev){ const col = ev.target.closest('.g2-col'); if (!col) return; const open = chart.querySelectorAll('.g2-col.show-tip'); for (let i=0;i<open.length;i++) if (open[i]!==col) open[i].classList.remove('show-tip'); col.classList.toggle('show-tip'); }); document.addEventListener('click', function(ev){ if (!chart.contains(ev.target)){ const open = chart.querySelectorAll('.g2-col.show-tip'); for (let i=0;i<open.length;i++) open[i].classList.remove('show-tip'); } }); chart.setAttribute('data-tipBound','1'); }
+      </div>
+      `;
+    }
+    html += `</div></div>`;
+    lista.insertAdjacentHTML('beforeend', html);
+    requestAnimationFrame(function(){
+      const bars = lista.querySelectorAll('.g2-chart .g2-bar');
+      for (let i=0;i<bars.length;i++){
+        const el = bars[i];
+        const target = parseFloat(el.getAttribute('data-h')) || 0;
+        el.style.height = target + 'px';
+      }
+    });
+    const chart = lista.querySelector('.g2-chart');
+    if (!chart) return;
+    if (!chart.getAttribute('data-tipBound')){
+      chart.addEventListener('click', function(ev){
+        const col = ev.target.closest('.g2-col');
+        if (!col) return;
+        const open = chart.querySelectorAll('.g2-col.show-tip');
+        for (let i=0;i<open.length;i++) if (open[i]!==col) open[i].classList.remove('show-tip');
+        col.classList.toggle('show-tip');
+      });
+      document.addEventListener('click', function(ev){
+        if (!chart.contains(ev.target)){
+          const open = chart.querySelectorAll('.g2-col.show-tip');
+          for (let i=0;i<open.length;i++) open[i].classList.remove('show-tip');
+        }
+      });
+      chart.setAttribute('data-tipBound','1');
+    }
   }
 
   // ==========================
@@ -484,11 +607,17 @@ if (window.__APP_LOADED__) {
       // Categoría: Oskar / Josune
       selCat.innerHTML = `<option value="" disabled ${preCat ? '' : 'selected'}>Seleccionar...</option>`;
       NOMINA_CATS.forEach(c => { selCat.innerHTML += `<option value="${c}" ${c === preCat ? 'selected' : ''}>${c}</option>`; });
+
       // Subcategoría: mes (preferimos el mes de la fecha del formulario)
       const mesPrefer = preSub || mesFromISO(fechaEl?.value);
       selSub.innerHTML = `<option value="" disabled ${mesPrefer ? '' : 'selected'}>Seleccionar...</option>`;
       NOMINA_SUBS.forEach(m => { selSub.innerHTML += `<option value="${m}" ${m === mesPrefer ? 'selected' : ''}>${m}</option>`; });
-      // Mostrar popup sin alterar estilos/apariencia
+
+      // 🔧 Fuerza valores efectivos (fix Guardar)
+      if (preCat) selCat.value = preCat;
+      if (mesPrefer) selSub.value = mesPrefer;
+
+      // Popup nómina
       lanzarPopupNomina({ preCat, preSub: mesPrefer });
     } else {
       // Otros orígenes: listas habituales (ocultando nómina/meses por defecto)
@@ -520,13 +649,16 @@ if (window.__APP_LOADED__) {
     // Preparar combo de subcategoría (meses), conservar sugerencia
     selSub.innerHTML = `<option value="" disabled ${mesPrefer ? '' : 'selected'}>Seleccionar...</option>`;
     NOMINA_SUBS.forEach(m => selSub.innerHTML += `<option value="${m}" ${m===mesPrefer?'selected':''}>${m}</option>`);
+    if (mesPrefer) selSub.value = mesPrefer; // 🔧 asegura value
 
     document.getElementById('btn_nom_oskar').onclick = () => {
       selCat.innerHTML = `<option value="Oskar" selected>Oskar</option>`;
+      selCat.value = "Oskar"; // 🔧 asegura value
       close();
     };
     document.getElementById('btn_nom_josune').onclick = () => {
       selCat.innerHTML = `<option value="Josune" selected>Josune</option>`;
+      selCat.value = "Josune"; // 🔧 asegura value
       close();
     };
     document.getElementById('btn_nom_cancel').onclick = () => {
@@ -556,8 +688,10 @@ if (window.__APP_LOADED__) {
       s.innerHTML += `<option value="${v}" ${v === pre ? 'selected' : ''}>${v}</option>`;
     });
     if (pre && !values.includes(pre)) s.innerHTML += `<option value="${pre}" selected hidden>${pre}</option>`;
-    if (id !== "origen") s.innerHTML += `<option value=\"+\">+ Añadir nuevo...</option>`;
+    if (id !== "origen") s.innerHTML += `<option value="+">+ Añadir nuevo...</option>`;
+    if (pre) s.value = pre; // 🔧 asegura value si hay selección previa
   };
+
   const abrirFormulario = (id = null) => {
     const f = document.getElementById("form"),
           mDiv= document.getElementById("movimientos"),
@@ -604,62 +738,385 @@ if (window.__APP_LOADED__) {
     f.classList.remove("hidden");
     mDiv.classList.add("hidden");
   };
+
   const guardar = () => {
-    const ids = ["editId","origen","categoria","subcategoria","fecha","descripcion","importe"]; const v = ids.reduce((acc,id)=>{ acc[id] = (document.getElementById(id) ? document.getElementById(id).value : ""); return acc; },{}); const imp = parseFloat(v.importe);
+    const ids = ["editId","origen","categoria","subcategoria","fecha","descripcion","importe"];
+    const v = ids.reduce((acc,id)=>{ acc[id] = (document.getElementById(id) ? document.getElementById(id).value : ""); return acc; },{});
+    const imp = parseFloat(v.importe);
     if (!v.origen || !v.categoria || !v.subcategoria || isNaN(imp)) return alert("Faltan datos");
-    const m = { id : v.editId || `id_${Date.now()}`, f : v.fecha, o : v.origen, c : v.categoria, s : v.subcategoria, imp: v.origen === "Gasto" ? -Math.abs(imp) : Math.abs(imp), d : v.descripcion, ts : Date.now() };
-    if (v.editId) { const idx = movimientos.findIndex(x => x.id.toString() === v.editId.toString()); if (idx !== -1) movimientos[idx] = m; }
-    else { movimientos.push(m); if (movimientos.length % 15 === 0) ejecutarBackupRotativo(); }
-    localStorage.setItem('movimientos', JSON.stringify(movimientos)); scheduleSync('guardar'); volver();
+    const m = {
+      id : v.editId || `id_${Date.now()}`,
+      f  : v.fecha,
+      o  : v.origen,
+      c  : v.categoria,
+      s  : v.subcategoria,
+      imp: v.origen === "Gasto" ? -Math.abs(imp) : Math.abs(imp),
+      d  : v.descripcion,
+      ts : Date.now()
+    };
+    if (v.editId) {
+      const idx = movimientos.findIndex(x => x.id.toString() === v.editId.toString());
+      if (idx !== -1) movimientos[idx] = m;
+    } else {
+      movimientos.push(m);
+      if (movimientos.length % 15 === 0) ejecutarBackupRotativo();
+    }
+    localStorage.setItem('movimientos', JSON.stringify(movimientos));
+    // 🔁 Sincroniza en segundo plano (Dropbox maestro)
+    scheduleSync('guardar');
+    volver();
   };
-  function eliminarRegistroActual(){ const idAEliminar = (document.getElementById("editId")||{}).value; if (!idAEliminar) return; if (confirm("¿ESTÁS SEGURO DE QUE DESEAS ELIMINAR ESTE REGISTRO?")) { movimientos = movimientos.filter(m => m.id.toString() !== idAEliminar.toString()); localStorage.setItem('movimientos', JSON.stringify(movimientos)); scheduleSync('eliminar'); volver(); } }
-  const volver = () => { document.getElementById("form").classList.add("hidden"); document.getElementById("movimientos").classList.remove("hidden"); actualizarListas(); resetPagina(); mostrar(); };
-  const manejarNuevo = (el, tipo) => { if (el.value !== "+") return; let n = el.dataset.nuevoValor || ""; el.dataset.nuevoValor = ""; if (!n) { el.value = ""; return; } const pretty = mostrarBonito(n.trim()); const keyNew = canonicalizeLabel(pretty); if (tipo === "categoria") { const catIdx = buildCanonIndex(catBase, catExtra); if (NOMINA_CATS.some(x => canonicalizeLabel(x) === keyNew)) { alert("No puedes crear manualmente 'Oskar' ni 'Josune'. Selecciona 'Nómina'."); el.value = ""; return; } if (!catIdx.has(keyNew)) { catExtra.push(pretty); localStorage.setItem('categoriaExtra', JSON.stringify(catExtra)); scheduleSync('listas'); } const origenActual = (document.getElementById("origen")||{}).value || ""; llenar("categoria", catBase, catExtra, pretty, { origenActual }); } else { const subIdx = buildCanonIndex(subMaestra, []); if (!subIdx.has(keyNew)) { subMaestra.push(pretty); localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra)); scheduleSync('listas'); } const origenActual = (document.getElementById("origen")||{}).value || ""; llenar("subcategoria", subMaestra, [], pretty, { origenActual }); } };
-  const borrarElemento = (tipo) => { const select = document.getElementById(tipo); const val = select && select.value; if (!val) return; if (tipo === 'categoria') { const idx = catExtra.indexOf(val); if (idx >= 0) { catExtra.splice(idx,1); localStorage.setItem('categoriaExtra', JSON.stringify(catExtra)); scheduleSync('listas'); const origenActual = (document.getElementById("origen")||{}).value || ""; llenar('categoria', catBase, catExtra, "", { origenActual }); } else { alert('Solo puedes borrar categorías añadidas por ti.'); } } else if (tipo === 'subcategoria') { const idx = subMaestra.indexOf(val); if (idx >= 0) { subMaestra.splice(idx,1); localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra)); scheduleSync('listas'); const origenActual = (document.getElementById("origen")||{}).value || ""; llenar('subcategoria', subMaestra, [], "",{ origenActual }); } } };
-  const abrirGraficos = () => { const m = document.getElementById("movimientos"); m.dataset.modo = (m.dataset.modo === "graficos") ? "lista" : "graficos"; mostrar(); };
+
+  function eliminarRegistroActual(){
+    const idAEliminar = (document.getElementById("editId")||{}).value;
+    if (!idAEliminar) return;
+    if (confirm("¿ESTÁS SEGURO DE QUE DESEAS ELIMINAR ESTE REGISTRO?")) {
+      movimientos = movimientos.filter(m => m.id.toString() !== idAEliminar.toString());
+      localStorage.setItem('movimientos', JSON.stringify(movimientos));
+      scheduleSync('eliminar');
+      volver();
+    }
+  }
+  const volver = () => {
+    document.getElementById("form").classList.add("hidden");
+    document.getElementById("movimientos").classList.remove("hidden");
+    actualizarListas(); resetPagina(); mostrar();
+  };
+  const manejarNuevo = (el, tipo) => {
+    if (el.value !== "+") return;
+    let n = el.dataset.nuevoValor || "";
+    el.dataset.nuevoValor = "";
+    if (!n) { el.value = ""; return; }
+    const pretty = mostrarBonito(n.trim());
+    const keyNew = canonicalizeLabel(pretty);
+    if (tipo === "categoria") {
+      const catIdx = buildCanonIndex(catBase, catExtra);
+      if (NOMINA_CATS.some(x => canonicalizeLabel(x) === keyNew)) {
+        alert("No puedes crear manualmente 'Oskar' ni 'Josune'. Selecciona 'Nómina'.");
+        el.value = ""; return;
+      }
+      if (!catIdx.has(keyNew)) {
+        catExtra.push(pretty);
+        localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+        scheduleSync('listas'); // 🔁 sync
+      }
+      const origenActual = (document.getElementById("origen")||{}).value || "";
+      llenar("categoria", catBase, catExtra, pretty, { origenActual });
+    } else {
+      const subIdx = buildCanonIndex(subMaestra, []);
+      if (!subIdx.has(keyNew)) {
+        subMaestra.push(pretty);
+        localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+        scheduleSync('listas'); // 🔁 sync
+      }
+      const origenActual = (document.getElementById("origen")||{}).value || "";
+      llenar("subcategoria", subMaestra, [], pretty, { origenActual });
+    }
+  };
+  const borrarElemento = (tipo) => {
+    const select = document.getElementById(tipo);
+    const val = select && select.value;
+    if (!val) return;
+    if (tipo === 'categoria') {
+      const idx = catExtra.indexOf(val);
+      if (idx >= 0) {
+        catExtra.splice(idx,1);
+        localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+        scheduleSync('listas'); // 🔁 sync
+        const origenActual = (document.getElementById("origen")||{}).value || "";
+        llenar('categoria', catBase, catExtra, "", { origenActual });
+      } else {
+        alert('Solo puedes borrar categorías añadidas por ti.');
+      }
+    } else if (tipo === 'subcategoria') {
+      const idx = subMaestra.indexOf(val);
+      if (idx >= 0) {
+        subMaestra.splice(idx,1);
+        localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+        scheduleSync('listas'); // 🔁 sync
+        const origenActual = (document.getElementById("origen")||{}).value || "";
+        llenar('subcategoria', subMaestra, [], "",{ origenActual });
+      }
+    }
+  };
+  const abrirGraficos = () => {
+    const m = document.getElementById("movimientos");
+    m.dataset.modo = (m.dataset.modo === "graficos") ? "lista" : "graficos";
+    mostrar();
+  };
   const resetPagina = () => { registrosVisibles = 25; window.scrollTo(0,0); };
-  const actualizarListas = () => { const fC = document.getElementById("filtroCat"), fS = document.getElementById("filtroSub"), fO = document.getElementById("filtroOri"); if (fC){ fC.innerHTML = '<option value="TODAS">Cat: TODAS</option>'; [...new Set([...catBase, ...catExtra, ...NOMINA_CATS])].sort().forEach(c => fC.add(new Option(c, c))); } if (fS){ fS.innerHTML = '<option value="TODAS">Sub: TODAS</option>'; [...new Set([...subMaestra, ...NOMINA_SUBS])].sort().forEach(s => fS.add(new Option(s, s))); } if (fO){ fO.innerHTML = '<option value="TODOS">Ori: TODOS</option>'; origenBase.forEach(o => fO.add(new Option(o, o))); } };
+  const actualizarListas = () => {
+    const fC = document.getElementById("filtroCat"),
+          fS = document.getElementById("filtroSub"),
+          fO = document.getElementById("filtroOri");
+    if (fC){
+      fC.innerHTML = '<option value="TODAS">Cat: TODAS</option>';
+      [...new Set([...catBase, ...catExtra, ...NOMINA_CATS])].sort().forEach(c => fC.add(new Option(c, c)));
+    }
+    if (fS){
+      fS.innerHTML = '<option value="TODAS">Sub: TODAS</option>';
+      [...new Set([...subMaestra, ...NOMINA_SUBS])].sort().forEach(s => fS.add(new Option(s, s)));
+    }
+    if (fO){
+      fO.innerHTML = '<option value="TODOS">Ori: TODOS</option>';
+      origenBase.forEach(o => fO.add(new Option(o, o)));
+    }
+  };
 
   // ==========================
   // NORMALIZACIÓN RETROACTIVA
   // ==========================
   function normalizarListasExistentes(){
     const vistosCat = new Set(Object.values(catBase).map(v => canonicalizeLabel(v)));
-    const nuevaExtra = []; const unicosExtra = [...new Set(catExtra)];
-    for (let v of unicosExtra){ const k = canonicalizeLabel(v); if (vistosCat.has(k)) continue; if (NOMINA_CATS.map(canonicalizeLabel).indexOf(k) >= 0) continue; if (!nuevaExtra.some(x => canonicalizeLabel(x)===k)) nuevaExtra.push(v); vistosCat.add(k); }
+    const nuevaExtra = [];
+    const unicosExtra = [...new Set(catExtra)];
+    for (let v of unicosExtra){
+      const k = canonicalizeLabel(v);
+      if (vistosCat.has(k)) continue;
+      if (NOMINA_CATS.map(canonicalizeLabel).indexOf(k) >= 0) continue;
+      if (!nuevaExtra.some(x => canonicalizeLabel(x)===k)) nuevaExtra.push(v);
+      vistosCat.add(k);
+    }
     catExtra = nuevaExtra; localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
-    const vistosSub = new Set(); const nuevasSubs = []; for (let v of subMaestra){ const k = canonicalizeLabel(v); if (!vistosSub.has(k)) { vistosSub.add(k); nuevasSubs.push(v); } } subMaestra = nuevasSubs; localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
-    const catIndexCanon = buildCanonIndex([...catBase, ...catExtra, ...NOMINA_CATS], []); const subIndexCanon = buildCanonIndex([...subMaestra, ...NOMINA_SUBS], []);
-    let cambiado = false; movimientos = movimientos.map(m=>{ const kc = canonicalizeLabel(m.c); const ks = canonicalizeLabel(m.s); let c = m.c, s = m.s; if (catIndexCanon.has(kc)) c = catIndexCanon.get(kc); if (subIndexCanon.has(ks)) s = subIndexCanon.get(ks); if (c!==m.c || s!==m.s){ cambiado = true; return {...m, c, s, ts: Math.max(Date.now(), (m.ts||0)+1)}; } return m; }).sort((a,b)=>new Date(b.f)-new Date(a.f)); if (cambiado) localStorage.setItem('movimientos', JSON.stringify(movimientos));
+    const vistosSub = new Set();
+    const nuevasSubs = [];
+    for (let v of subMaestra){
+      const k = canonicalizeLabel(v);
+      if (!vistosSub.has(k)) { vistosSub.add(k); nuevasSubs.push(v); }
+    }
+    subMaestra = nuevasSubs; localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+    const catIndexCanon = buildCanonIndex([...catBase, ...catExtra, ...NOMINA_CATS], []);
+    const subIndexCanon = buildCanonIndex([...subMaestra, ...NOMINA_SUBS], []);
+    let cambiado = false;
+    movimientos = movimientos.map(m=>{
+      const kc = canonicalizeLabel(m.c);
+      const ks = canonicalizeLabel(m.s);
+      let c = m.c, s = m.s;
+      if (catIndexCanon.has(kc)) c = catIndexCanon.get(kc);
+      if (subIndexCanon.has(ks)) s = subIndexCanon.get(ks);
+      if (c!==m.c || s!==m.s){
+        cambiado = true;
+        return {...m, c, s, ts: Math.max(Date.now(), (m.ts||0)+1)};
+      }
+      return m;
+    }).sort((a,b)=>new Date(b.f)-new Date(a.f));
+    if (cambiado) localStorage.setItem('movimientos', JSON.stringify(movimientos));
   }
 
   // ==========================
   // INIT + SCROLL
   // ==========================
-  const init = () => { const fM = document.getElementById("filtroMes"), fA = document.getElementById("filtroAño"), hoy = new Date(); if (fM){ fM.innerHTML = '<option value="TODOS">Mes: TODOS</option>'; for (let i=0;i<mesesLabel.length;i++) fM.add(new Option(mesesLabel[i], i)); fM.value = hoy.getMonth(); } if (fA){ fA.innerHTML = '<option value="TODOS">Año: TODOS</option>'; for (let a = 2020; a <= 2030; a++) fA.add(new Option(a, a)); fA.value = hoy.getFullYear(); } normalizarListasExistentes(); actualizarListas(); mostrar(); };
-  let _renderLock = false; window.addEventListener('scroll', () => { const movDiv = document.getElementById("movimientos"); if (!movDiv || movDiv.dataset.modo === "graficos") return; if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 200 && registrosVisibles < filtradosGlobal.length) { if (_renderLock) return; _renderLock = true; const loader = document.getElementById("loader"); if (loader) loader.style.display = "block"; setTimeout(function(){ registrosVisibles += 25; mostrar(); _renderLock = false; }, 200); } }, { passive: true });
+  const init = () => {
+    const fM = document.getElementById("filtroMes"),
+          fA = document.getElementById("filtroAño"),
+          hoy = new Date();
+    if (fM){
+      fM.innerHTML = '<option value="TODOS">Mes: TODOS</option>';
+      for (let i=0;i<mesesLabel.length;i++) fM.add(new Option(mesesLabel[i], i));
+      fM.value = hoy.getMonth();
+    }
+    if (fA){
+      fA.innerHTML = '<option value="TODOS">Año: TODOS</option>';
+      for (let a = 2020; a <= 2030; a++) fA.add(new Option(a, a));
+      fA.value = hoy.getFullYear();
+    }
+    normalizarListasExistentes();
+    actualizarListas();
+    mostrar();
+  };
+  let _renderLock = false;
+  window.addEventListener('scroll', () => {
+    const movDiv = document.getElementById("movimientos");
+    if (!movDiv || movDiv.dataset.modo === "graficos") return;
+    if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 200 && registrosVisibles < filtradosGlobal.length) {
+      if (_renderLock) return;
+      _renderLock = true;
+      const loader = document.getElementById("loader");
+      if (loader) loader.style.display = "block";
+      setTimeout(function(){ registrosVisibles += 25; mostrar(); _renderLock = false; }, 200);
+    }
+  }, { passive: true });
 
   // ==========================
   // CSV: EXPORTACIÓN / IMPORTACIÓN
   // ==========================
-  const exportarCSV = () => { if (!movimientos || movimientos.length === 0) { alert("No hay datos para exportar."); return; } const SEP = ";"; const toESDate = (iso) => { const [y,m,d] = (iso||"").split("-"); return (y&&m&&d)?`${d}/${m}/${y}`:(iso||""); }; const csvCell = (v) => { let t=(v??"").toString().replace(/\r?\n/g,"⏎"); if(/[;"\n]/.test(t)) t='"'+t.replace(/"/g,'""')+'"'; return t; }; const headers = ["Fecha","Origen","Categoria","Subcategoria","Importe","Descripcion"].join(SEP); const rows = movimientos.map(m => [toESDate(m.f), m.o||"", m.c||"", m.s||"", (Number(m.imp)||0), (m.d??"").trim()].map(csvCell).join(SEP)); const csv = [headers, ...rows].join("\n"); const hoy = new Date(), dd=String(hoy.getDate()).padStart(2,"0"), mm=String(hoy.getMonth()+1).padStart(2,"0"), yyyy=hoy.getFullYear(); const fileName = `mis_gastos_${dd}${mm}${yyyy}.csv`; const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" }); const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); };
-  const importarCSV = (e) => { const file = e.target.files && e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const text = reader.result.replace(/^\uFEFF/,""); const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0); if (!lines.length) { alert("El archivo está vacío."); return; } const header = lines[0]; const counts = { tab:(header.match(/\t/g)||[]).length, semi:(header.match(/;/g)||[]).length, comma:(header.match(/,/g)||[]).length }; let delim = "\t"; if (counts.semi>=counts.tab && counts.semi>=counts.comma) delim=";"; else if (counts.comma>=counts.tab) delim=","; const parseLine = (line) => { const out=[]; let cur="", inQ=false; for(let i=0;i<line.length;i++){ const ch=line[i]; if(ch=='"'){ if(inQ && line[i+1]=='"'){ cur+='"'; i++; } else inQ=!inQ; } else if(ch===delim && !inQ){ out.push(cur); cur=""; } else { cur+=ch; } } out.push(cur); return out; }; const cols = parseLine(header).map(h=>h.trim().toLowerCase()); const idx = { fecha: cols.findIndex(c => c.startsWith("fecha")), origen: cols.findIndex(c => c.startsWith("origen")), categoria: cols.findIndex(c => c.startsWith("categoria")), subcategoria: cols.findIndex(c => c.startsWith("subcategoria")), importe: cols.findIndex(c => c.startsWith("importe")), descripcion: cols.findIndex(c => c.startsWith("descripcion") || c.startsWith("descripción")) }; const required = ["fecha","origen","categoria","subcategoria","importe"]; const missing = required.filter(k => idx[k] < 0); if (missing.length) { alert("Faltan columnas: " + missing.join(", ")); return; } const toISODate = (ddmmyyyy) => { const m=ddmmyyyy.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if(!m) return ddmmyyyy; return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`; }; const parseEuroNumber = (s) => { let t=(s||'').toString().trim(); t=t.replace(/\.(?=\d{3}(?:\D|$))/g,''); t=t.replace(',', '.'); const n=parseFloat(t); return isNaN(n)?0:n; }; const cleanText = (s) => { if(!s) return ""; let t=s.replace(/\"{2,}/g,'"').trim(); if(t.startsWith('"') && t.endsWith('"')) t=t.slice(1,-1); return t.trim(); }; const catIndexCanon = buildCanonIndex([...catBase, ...catExtra, ...NOMINA_CATS], []); const subIndexCanon = buildCanonIndex([...subMaestra, ...NOMINA_SUBS], []); const nuevos = []; for (let i = 1; i < lines.length; i++) { const arr = parseLine(lines[i]); if (arr.every(v => (v||'').trim()==='')) continue; const f = toISODate(cleanText(arr[idx.fecha] ?? '')); let o = cleanText(arr[idx.origen] ?? ''); let c = mostrarBonito(cleanText(arr[idx.categoria] ?? '')); let s = mostrarBonito(cleanText(arr[idx.subcategoria] ?? '')); let d = cleanText(arr[idx.descripcion] ?? ''); const oLow = o.toLowerCase(); if (oLow.startsWith('nom')) o='Nómina'; else if (oLow.startsWith('gas')) o='Gasto'; else if (oLow.startsWith('ing')) o='Ingreso'; const keyC = canonicalizeLabel(c), keyS = canonicalizeLabel(s); if (catIndexCanon.has(keyC)) c = catIndexCanon.get(keyC); if (subIndexCanon.has(keyS)) s = subIndexCanon.get(keyS); let imp = parseFloat(parseEuroNumber(arr[idx.importe] ?? '0')); if (o === 'Gasto' && imp > 0) imp = -Math.abs(imp); if (o !== 'Gasto' && imp < 0) imp = Math.abs(imp); const mov = { id:`id_${Date.now()}_${i}`, f, o, c, s, imp, d, ts: Date.now()+i }; if (!f || !o || !c || !s || isNaN(imp)) continue; nuevos.push(mov); } const addIfNewCanon = (list, storeKey, value) => { const k = canonicalizeLabel(value); const exists = list.some(v => canonicalizeLabel(v) === k); if (!exists) { list.push(value); localStorage.setItem(storeKey, JSON.stringify(list)); } }; nuevos.forEach(m=>{ if (![...catBase, ...catExtra, ...NOMINA_CATS].some(v => canonicalizeLabel(v) === canonicalizeLabel(m.c))) addIfNewCanon(catExtra, 'categoriaExtra', m.c); if (![...subMaestra, ...NOMINA_SUBS].some(v => canonicalizeLabel(v) === canonicalizeLabel(m.s))) addIfNewCanon(subMaestra, 'subMaestra_v2', m.s); }); movimientos = [...movimientos, ...nuevos].sort((a,b)=>new Date(b.f)-new Date(a.f)); localStorage.setItem('movimientos', JSON.stringify(movimientos)); scheduleSync('importarCSV'); actualizarListas(); resetPagina(); mostrar(); alert(`Importación completa: ${nuevos.length} registros añadidos.`); } catch (err) { console.error(err); alert("Error al importar el CSV. Revisa el formato."); } finally { e.target.value = ""; } }; reader.onerror = () => alert("No se pudo leer el archivo."); reader.readAsText(file, 'UTF-8'); };
+  const exportarCSV = () => {
+    if (!movimientos || movimientos.length === 0) { alert("No hay datos para exportar."); return; }
+    const SEP = ";";
+    const toESDate = (iso) => { const [y,m,d] = (iso||"").split("-"); return (y&&m&&d)?`${d}/${m}/${y}`:(iso||""); };
+    const csvCell = (v) => { let t=(v??"").toString().replace(/\r?\n/g,"⏎"); if(/[;"\n]/.test(t)) t='"'+t.replace(/"/g,'""')+'"'; return t; };
+    const headers = ["Fecha","Origen","Categoria","Subcategoria","Importe","Descripcion"].join(SEP);
+    const rows = movimientos.map(m => [toESDate(m.f), m.o||"", m.c||"", m.s||"", (Number(m.imp)||0), (m.d??"").trim()].map(csvCell).join(SEP));
+    const csv = [headers, ...rows].join("\n");
+    const hoy = new Date(), dd=String(hoy.getDate()).padStart(2,"0"), mm=String(hoy.getMonth()+1).padStart(2,"0"), yyyy=hoy.getFullYear();
+    const fileName = `mis_gastos_${dd}${mm}${yyyy}.csv`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+  const importarCSV = (e) => {
+    const file = e.target.files && e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = reader.result.replace(/^\uFEFF/,"");
+        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (!lines.length) { alert("El archivo está vacío."); return; }
+        const header = lines[0];
+        const counts = { tab:(header.match(/\t/g)||[]).length, semi:(header.match(/;/g)||[]).length, comma:(header.match(/,/g)||[]).length };
+        let delim = "\t"; if (counts.semi>=counts.tab && counts.semi>=counts.comma) delim=";"; else if (counts.comma>=counts.tab) delim=",";
+        const parseLine = (line) => {
+          const out=[]; let cur="", inQ=false;
+          for(let i=0;i<line.length;i++){
+            const ch=line[i];
+            if(ch=='"'){ if(inQ && line[i+1]=='"'){ cur+='"'; i++; } else inQ=!inQ; }
+            else if(ch===delim && !inQ){ out.push(cur); cur=""; }
+            else { cur+=ch; }
+          }
+          out.push(cur); return out;
+        };
+        const cols = parseLine(header).map(h=>h.trim().toLowerCase());
+        const idx = {
+          fecha: cols.findIndex(c => c.startsWith("fecha")),
+          origen: cols.findIndex(c => c.startsWith("origen")),
+          categoria: cols.findIndex(c => c.startsWith("categoria")),
+          subcategoria: cols.findIndex(c => c.startsWith("subcategoria")),
+          importe: cols.findIndex(c => c.startsWith("importe")),
+          descripcion: cols.findIndex(c => c.startsWith("descripcion") || c.startsWith("descripción"))
+        };
+        const required = ["fecha","origen","categoria","subcategoria","importe"];
+        const missing = required.filter(k => idx[k] < 0);
+        if (missing.length) { alert("Faltan columnas: " + missing.join(", ")); return; }
+        const toISODate = (ddmmyyyy) => {
+          const m=ddmmyyyy.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if(!m) return ddmmyyyy;
+          return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+        };
+        const parseEuroNumber = (s) => {
+          let t=(s||'').toString().trim();
+          t=t.replace(/\.(?=\d{3}(?:\D|$))/g,''); // miles
+          t=t.replace(',', '.'); // decimal
+          const n=parseFloat(t); return isNaN(n)?0:n;
+        };
+        const cleanText = (s) => {
+          if(!s) return "";
+          let t=s.replace(/\\"{2,}/g,'"').trim();
+          if(t.startsWith('"') && t.endsWith('"')) t=t.slice(1,-1);
+          return t.trim();
+        };
+        const catIndexCanon = buildCanonIndex([...catBase, ...catExtra, ...NOMINA_CATS], []);
+        const subIndexCanon = buildCanonIndex([...subMaestra, ...NOMINA_SUBS], []);
+        const nuevos = [];
+        for (let i = 1; i < lines.length; i++) {
+          const arr = parseLine(lines[i]); if (arr.every(v => (v||'').trim()==='')) continue;
+          const f = toISODate(cleanText(arr[idx.fecha] ?? ''));
+          let o = cleanText(arr[idx.origen] ?? '');
+          let c = mostrarBonito(cleanText(arr[idx.categoria] ?? ''));
+          let s = mostrarBonito(cleanText(arr[idx.subcategoria] ?? ''));
+          let d = cleanText(arr[idx.descripcion] ?? '');
+          const oLow = o.toLowerCase();
+          if (oLow.startsWith('nom')) o='Nómina'; else if (oLow.startsWith('gas')) o='Gasto'; else if (oLow.startsWith('ing')) o='Ingreso';
+          const keyC = canonicalizeLabel(c), keyS = canonicalizeLabel(s);
+          if (catIndexCanon.has(keyC)) c = catIndexCanon.get(keyC);
+          if (subIndexCanon.has(keyS)) s = subIndexCanon.get(keyS);
+          let imp = parseFloat(parseEuroNumber(arr[idx.importe] ?? '0'));
+          if (o === 'Gasto' && imp > 0) imp = -Math.abs(imp);
+          if (o !== 'Gasto' && imp < 0) imp = Math.abs(imp);
+          const mov = { id:`id_${Date.now()}_${i}`, f, o, c, s, imp, d, ts: Date.now()+i };
+          if (!f || !o || !c || !s || isNaN(imp)) continue;
+          nuevos.push(mov);
+        }
+        const addIfNewCanon = (list, storeKey, value) => {
+          const k = canonicalizeLabel(value);
+          const exists = list.some(v => canonicalizeLabel(v) === k);
+          if (!exists) { list.push(value); localStorage.setItem(storeKey, JSON.stringify(list)); }
+        };
+        nuevos.forEach(m=>{
+          if (![...catBase, ...catExtra, ...NOMINA_CATS].some(v => canonicalizeLabel(v) === canonicalizeLabel(m.c))) addIfNewCanon(catExtra, 'categoriaExtra', m.c);
+          if (![...subMaestra, ...NOMINA_SUBS].some(v => canonicalizeLabel(v) === canonicalizeLabel(m.s))) addIfNewCanon(subMaestra, 'subMaestra_v2', m.s);
+        });
+        movimientos = [...movimientos, ...nuevos].sort((a,b)=>new Date(b.f)-new Date(a.f));
+        localStorage.setItem('movimientos', JSON.stringify(movimientos));
+        scheduleSync('importarCSV');
+        actualizarListas(); resetPagina(); mostrar();
+        alert(`Importación completa: ${nuevos.length} registros añadidos.`);
+      } catch (err) {
+        console.error(err); alert("Error al importar el CSV. Revisa el formato.");
+      } finally { e.target.value = ""; }
+    };
+    reader.onerror = () => alert("No se pudo leer el archivo.");
+    reader.readAsText(file, 'UTF-8');
+  };
 
   // ==========================
   // BACKUPS (rotativo local + indicador)
   // ==========================
-  async function createAndStoreLocalBackup(){ const enc = await encryptBackup(buildBackupObject()); const idx = ((parseInt(localStorage.getItem('backup_idx')||'0',10)) % 5) + 1; localStorage.setItem(`backup_${idx}`, JSON.stringify(enc)); localStorage.setItem('backup_idx', String(idx)); localStorage.setItem('backup_last_ts', String(Date.now())); updateBackupIndicator(); return enc; }
-  async function downloadEncryptedBackup(enc, filename='mis_gastos_backup.json'){ const blob=new Blob([JSON.stringify(enc,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
-  const ejecutarBackupRotativo = async () => { try{ const enc=await createAndStoreLocalBackup(); await downloadEncryptedBackup(enc,'mis_gastos_backup.json'); } catch(e){ console.error("Backup automático falló:", e); } };
-  function ensureBackupIndicator(){ const top=document.querySelector('.topbar'); if (!top) return; if (!document.getElementById('backupIndicator')){ const span=document.createElement('span'); span.id='backupIndicator'; span.className='backup-indicator'; span.innerHTML=`<span class=\"dot\"></span><span class=\"txt\">Última copia: —</span>`; top.appendChild(span); } }
-  function humanAgo(ts){ if (!ts) return "—"; const diff=Date.now()-ts, s=Math.floor(diff/1000); if (s<60) return `hace ${s}s`; const m=Math.floor(s/60); if (m<60) return `hace ${m}m`; const h=Math.floor(m/60); return `hace ${h}h`; }
-  function updateBackupIndicator(){ const el=document.getElementById('backupIndicator'); if (!el) return; const ts=parseInt(localStorage.getItem('backup_last_ts')||'0',10); el.querySelector('.txt').textContent=`Última copia: ${humanAgo(ts)}`; el.classList.remove('stale','old'); if (!ts) el.classList.add('old'); else { const mins=(Date.now()-ts)/60000; if (mins>1440) el.classList.add('old'); else if (mins>60) el.classList.add('stale'); } }
+  async function createAndStoreLocalBackup(){
+    const enc = await encryptBackup(buildBackupObject());
+    const idx = ((parseInt(localStorage.getItem('backup_idx')||'0',10)) % 5) + 1;
+    localStorage.setItem(`backup_${idx}`, JSON.stringify(enc));
+    localStorage.setItem('backup_idx', String(idx));
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator();
+    return enc;
+  }
+  async function downloadEncryptedBackup(enc, filename='mis_gastos_backup.json'){
+    const blob=new Blob([JSON.stringify(enc,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  const ejecutarBackupRotativo = async () => {
+    try{
+      const enc=await createAndStoreLocalBackup();
+      await downloadEncryptedBackup(enc,'mis_gastos_backup.json');
+    } catch(e){
+      console.error("Backup automático falló:", e);
+    }
+  };
+  function ensureBackupIndicator(){
+    const top=document.querySelector('.topbar'); if (!top) return;
+    if (!document.getElementById('backupIndicator')){
+      const span=document.createElement('span');
+      span.id='backupIndicator';
+      span.className='backup-indicator';
+      span.innerHTML=`<span class="dot"></span><span class="txt">Última copia: —</span>`;
+      top.appendChild(span);
+    }
+  }
+  function humanAgo(ts){
+    if (!ts) return "—";
+    const diff=Date.now()-ts, s=Math.floor(diff/1000);
+    if (s<60) return `hace ${s}s`;
+    const m=Math.floor(s/60); if (m<60) return `hace ${m}m`;
+    const h=Math.floor(m/60); return `hace ${h}h`;
+  }
+  function updateBackupIndicator(){
+    const el=document.getElementById('backupIndicator'); if (!el) return;
+    const ts=parseInt(localStorage.getItem('backup_last_ts')||'0',10);
+    el.querySelector('.txt').textContent=`Última copia: ${humanAgo(ts)}`;
+    el.classList.remove('stale','old');
+    if (!ts) el.classList.add('old');
+    else {
+      const mins=(Date.now()-ts)/60000;
+      if (mins>1440) el.classList.add('old');
+      else if (mins>60) el.classList.add('stale');
+    }
+  }
   setInterval(updateBackupIndicator, 60000);
 
   // ==========================
   // SERVICE WORKER (PWA)
   // ==========================
-  if ('serviceWorker' in navigator) { window.addEventListener('load', function(){ navigator.serviceWorker.register('./sw.js').catch(function(err){ console.error("SW ERROR:", err); }); }); }
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('./sw.js').catch(function(err){
+        console.error("SW ERROR:", err);
+      });
+    });
+  }
 
   // ==========================
   // DROPBOX — PKCE + API v2 (login bajo demanda + scopes correctos)
@@ -670,16 +1127,110 @@ if (window.__APP_LOADED__) {
   const DBX_OAUTH_AUTHORIZE = 'https://www.dropbox.com/oauth2/authorize';
   const DBX_OAUTH_TOKEN     = 'https://api.dropboxapi.com/oauth2/token';
   const DBX_CONTENT         = 'https://content.dropboxapi.com/2';
-  function dbx_b64Url(bytes) { return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
-  async function dbx_sha256Base64Url(text) { const data = new TextEncoder().encode(text); const hash = await crypto.subtle.digest('SHA-256', data); return dbx_b64Url(new Uint8Array(hash)); }
-  function dbx_randomString(len=64) { const arr = new Uint8Array(len); crypto.getRandomValues(arr); return Array.from(arr).map(b => ('0'+b.toString(16)).slice(-2)).join(''); }
+
+  function dbx_b64Url(bytes) {
+    return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+      .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
+  async function dbx_sha256Base64Url(text) {
+    const data = new TextEncoder().encode(text);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return dbx_b64Url(new Uint8Array(hash));
+  }
+  function dbx_randomString(len=64) {
+    const arr = new Uint8Array(len); crypto.getRandomValues(arr);
+    return Array.from(arr).map(b => ('0'+b.toString(16)).slice(-2)).join('');
+  }
   function dbx_getTokens(){ try {return JSON.parse(localStorage.getItem('dbx_tokens')||'{}');} catch { return null; } }
   function dbx_setTokens(t){ localStorage.setItem('dbx_tokens', JSON.stringify(t||{})); }
   function dbx_clearTokens(){ localStorage.removeItem('dbx_tokens'); }
-  async function dropboxStartLogin(){ const code_verifier = dbx_randomString(64); const code_challenge = await dbx_sha256Base64Url(code_verifier); sessionStorage.setItem('dbx_code_verifier', code_verifier); const params = new URLSearchParams({ response_type: 'code', client_id: DBX_APP_KEY, redirect_uri: DBX_REDIRECT_URI, code_challenge: code_challenge, code_challenge_method: 'S256', token_access_type: 'offline', scope: 'files.content.write files.content.read files.metadata.read' }); window.location.href = `${DBX_OAUTH_AUTHORIZE}?${params.toString()}`; }
-  async function dbx_getValidAccessToken(){ let t = dbx_getTokens(); if (!t) return null; if (t.access_token && t.expires_at && Date.now() < t.expires_at) return t.access_token; if (t.refresh_token) { const body = new URLSearchParams({ grant_type:'refresh_token', client_id:DBX_APP_KEY, refresh_token:t.refresh_token }); const r = await fetch(DBX_OAUTH_TOKEN, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body }); if (!r.ok) { dbx_clearTokens(); return null; } const j = await r.json(); const expires_at = Date.now() + (j.expires_in ? j.expires_in*1000 : 3600*1000); const saved = { ...t, access_token:j.access_token, expires_in:j.expires_in, expires_at }; dbx_setTokens(saved); return saved.access_token; } return t.access_token || null; }
-  async function dropboxUploadEncryptedBackup(){ try{ let token = await dbx_getValidAccessToken(); if (!token) { await dropboxStartLogin(); return; } const enc = await encryptBackup(buildBackupObject()); const payload = JSON.stringify(enc, null, 2); const res = await fetch(`${DBX_CONTENT}/files/upload`, { method:'POST', headers:{ 'Authorization': `Bearer ${token}`, 'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH, mode: 'overwrite', autorename: false, mute: true }), 'Content-Type':'application/octet-stream' }, body: new TextEncoder().encode(payload) }); if (!res.ok) throw new Error(await res.text()); localStorage.setItem('backup_last_ts', String(Date.now())); updateBackupIndicator?.(); alert('✅ Copia subida a Dropbox.'); }catch(e){ console.error('Dropbox upload error:', e); alert(String(e?.message || e)); } }
-  async function dropboxDownloadAndRestore(){ try{ let token = await dbx_getValidAccessToken(); if (!token) { await dropboxStartLogin(); return; } const res = await fetch(`${DBX_CONTENT}/files/download`, { method:'POST', headers:{ 'Authorization': `Bearer ${token}`, 'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH }) } }); if (!res.ok) throw new Error(await res.text()); const text = await res.text(); let payload; try { payload = JSON.parse(text); } catch { throw new Error('El archivo no es JSON.'); } const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload; if (!data || !data.datos) throw new Error('Formato de copia inválido'); movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : []; catExtra = Array.isArray(data.datos.catExtra) ? data.datos.catExtra : []; subMaestra = Array.isArray(data.datos.subMaestra) ? data.datos.subMaestra : []; localStorage.setItem('movimientos', JSON.stringify(movimientos)); localStorage.setItem('categoriaExtra', JSON.stringify(catExtra)); localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra)); localStorage.setItem('backup_last_ts', String(Date.now())); updateBackupIndicator?.(); actualizarListas?.(); resetPagina?.(); mostrar?.(); alert('✅ Copia restaurada desde Dropbox.'); }catch(e){ console.error('Dropbox download error:', e); alert(String(e?.message || e)); } }
+
+  // Login con scopes de archivos (PKCE)
+  async function dropboxStartLogin(){
+    const code_verifier = dbx_randomString(64);
+    const code_challenge = await dbx_sha256Base64Url(code_verifier);
+    sessionStorage.setItem('dbx_code_verifier', code_verifier);
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: DBX_APP_KEY,
+      redirect_uri: DBX_REDIRECT_URI,
+      code_challenge: code_challenge,
+      code_challenge_method: 'S256',
+      token_access_type: 'offline',
+      scope: 'files.content.write files.content.read files.metadata.read'
+    });
+    window.location.href = `${DBX_OAUTH_AUTHORIZE}?${params.toString()}`;
+  }
+
+  // Token válido (refresca si caducó)
+  async function dbx_getValidAccessToken(){
+    let t = dbx_getTokens(); if (!t) return null;
+    if (t.access_token && t.expires_at && Date.now() < t.expires_at) return t.access_token;
+    if (t.refresh_token) {
+      const body = new URLSearchParams({ grant_type:'refresh_token', client_id:DBX_APP_KEY, refresh_token:t.refresh_token });
+      const r = await fetch(DBX_OAUTH_TOKEN, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
+      if (!r.ok) { dbx_clearTokens(); return null; }
+      const j = await r.json();
+      const expires_at = Date.now() + (j.expires_in ? j.expires_in*1000 : 3600*1000);
+      const saved = { ...t, access_token:j.access_token, expires_in:j.expires_in, expires_at };
+      dbx_setTokens(saved);
+      return saved.access_token;
+    }
+    return t.access_token || null;
+  }
+
+  // === Subida manual (si lo usas en la UI)
+  async function dropboxUploadEncryptedBackup(){
+    try{
+      let token = await dbx_getValidAccessToken();
+      if (!token) { await dropboxStartLogin(); return; }
+      const enc = await encryptBackup(buildBackupObject());
+      const payload = JSON.stringify(enc, null, 2);
+      const res = await fetch(`${DBX_CONTENT}/files/upload`, {
+        method:'POST',
+        headers:{
+          'Authorization': `Bearer ${token}`,
+          'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH, mode: 'overwrite', autorename: false, mute: true }),
+          'Content-Type':'application/octet-stream'
+        },
+        body: new TextEncoder().encode(payload)
+      });
+      if (!res.ok) throw new Error(await res.text());
+      localStorage.setItem('backup_last_ts', String(Date.now()));
+      updateBackupIndicator?.();
+      alert('✅ Copia subida a Dropbox.');
+    }catch(e){ console.error('Dropbox upload error:', e); alert(String(e?.message || e)); }
+  }
+
+  // === Restaurar manual
+  async function dropboxDownloadAndRestore(){
+    try{
+      let token = await dbx_getValidAccessToken();
+      if (!token) { await dropboxStartLogin(); return; }
+      const res = await fetch(`${DBX_CONTENT}/files/download`, {
+        method:'POST',
+        headers:{
+          'Authorization': `Bearer ${token}`,
+          'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH })
+        }
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const text = await res.text();
+      let payload; try { payload = JSON.parse(text); } catch { throw new Error('El archivo no es JSON.'); }
+      const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
+      if (!data || !data.datos) throw new Error('Formato de copia inválido');
+      movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
+      catExtra    = Array.isArray(data.datos.catExtra) ? data.datos.catExtra : [];
+      subMaestra  = Array.isArray(data.datos.subMaestra) ? data.datos.subMaestra : [];
+      localStorage.setItem('movimientos', JSON.stringify(movimientos));
+      localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+      localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+      localStorage.setItem('backup_last_ts', String(Date.now()));
+      updateBackupIndicator?.();
+      actualizarListas?.(); resetPagina?.(); mostrar?.();
+      alert('✅ Copia restaurada desde Dropbox.');
+    }catch(e){ console.error('Dropbox download error:', e); alert(String(e?.message || e)); }
+  }
   function dropboxSignOut(){ dbx_clearTokens(); alert('Dropbox desconectado en este dispositivo.'); }
 
   // ==========================
@@ -687,10 +1238,71 @@ if (window.__APP_LOADED__) {
   // ==========================
   let _syncTimer = null;
   async function autoSyncToDropbox(reason = 'changed') {
-    try { if (!navigator.onLine) return; const token = await dbx_getValidAccessToken(); if (!token) { await dropboxStartLogin(); return; } const enc = await encryptBackup(buildBackupObject()); const payload = JSON.stringify(enc, null, 2); const res = await fetch(`${DBX_CONTENT}/files/upload`, { method:'POST', headers:{ 'Authorization': `Bearer ${token}`, 'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH, mode: 'overwrite', autorename: false, mute: true }), 'Content-Type':'application/octet-stream' }, body: new TextEncoder().encode(payload) }); if (!res.ok) { const errTxt = await res.text(); console.warn('Sync Dropbox error:', errTxt); return; } localStorage.setItem('backup_last_ts', String(Date.now())); updateBackupIndicator?.(); } catch (e) { console.warn('AutoSync Dropbox falló:', e); }
+    try {
+      if (!navigator.onLine) return;
+      const token = await dbx_getValidAccessToken();
+      if (!token) { await dropboxStartLogin(); return; }
+      const enc = await encryptBackup(buildBackupObject());
+      const payload = JSON.stringify(enc, null, 2);
+      const res = await fetch(`${DBX_CONTENT}/files/upload`, {
+        method:'POST',
+        headers:{
+          'Authorization': `Bearer ${token}`,
+          'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH, mode: 'overwrite', autorename: false, mute: true }),
+          'Content-Type':'application/octet-stream'
+        },
+        body: new TextEncoder().encode(payload)
+      });
+      if (!res.ok) {
+        const errTxt = await res.text();
+        console.warn('Sync Dropbox error:', errTxt);
+        return;
+      }
+      localStorage.setItem('backup_last_ts', String(Date.now()));
+      updateBackupIndicator?.();
+    } catch (e) {
+      console.warn('AutoSync Dropbox falló:', e);
+    }
   }
-  function scheduleSync(reason = 'changed') { try { clearTimeout(_syncTimer); } catch {} _syncTimer = setTimeout(() => autoSyncToDropbox(reason), 1200); }
-  async function loadFromDropboxOnStart({ silent = true } = {}) { try { if (!navigator.onLine) return; const token = await dbx_getValidAccessToken(); if (!token) return; const res = await fetch(`${DBX_CONTENT}/files/download`, { method:'POST', headers:{ 'Authorization': `Bearer ${token}`, 'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH }) } }); if (!res.ok) { const txt = await res.text(); console.info('No se pudo descargar (quizá aún no hay copia en Dropbox):', txt); return; } const text = await res.text(); let payload; try { payload = JSON.parse(text); } catch { return; } const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload; if (!data || !data.datos) return; movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : []; catExtra = Array.isArray(data.datos.catExtra) ? data.datos.catExtra : []; subMaestra = Array.isArray(data.datos.subMaestra) ? data.datos.subMaestra : []; localStorage.setItem('movimientos', JSON.stringify(movimientos)); localStorage.setItem('categoriaExtra', JSON.stringify(catExtra)); localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra)); localStorage.setItem('backup_last_ts', String(Date.now())); updateBackupIndicator?.(); actualizarListas?.(); resetPagina?.(); mostrar?.(); if (!silent) alert('Datos cargados desde Dropbox.'); } catch (e) { console.warn('Carga automática desde Dropbox falló:', e); } }
+  function scheduleSync(reason = 'changed') {
+    try { clearTimeout(_syncTimer); } catch {}
+    _syncTimer = setTimeout(() => autoSyncToDropbox(reason), 1200);
+  }
+  async function loadFromDropboxOnStart({ silent = true } = {}) {
+    try {
+      if (!navigator.onLine) return;
+      const token = await dbx_getValidAccessToken();
+      if (!token) return;
+      const res = await fetch(`${DBX_CONTENT}/files/download`, {
+        method:'POST',
+        headers:{
+          'Authorization': `Bearer ${token}`,
+          'Dropbox-API-Arg': JSON.stringify({ path: DBX_FILE_PATH })
+        }
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.info('No se pudo descargar (quizá aún no hay copia en Dropbox):', txt);
+        return;
+      }
+      const text = await res.text();
+      let payload; try { payload = JSON.parse(text); } catch { return; }
+      const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
+      if (!data || !data.datos) return;
+      movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
+      catExtra    = Array.isArray(data.datos.catExtra) ? data.datos.catExtra : [];
+      subMaestra  = Array.isArray(data.datos.subMaestra) ? data.datos.subMaestra : [];
+      localStorage.setItem('movimientos', JSON.stringify(movimientos));
+      localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+      localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+      localStorage.setItem('backup_last_ts', String(Date.now()));
+      updateBackupIndicator?.();
+      actualizarListas?.(); resetPagina?.(); mostrar?.();
+      if (!silent) alert('Datos cargados desde Dropbox.');
+    } catch (e) {
+      console.warn('Carga automática desde Dropbox falló:', e);
+    }
+  }
   window.addEventListener('online', () => scheduleSync('online'));
 
   // ==========================
@@ -703,7 +1315,7 @@ if (window.__APP_LOADED__) {
   window.resetPagina = resetPagina; window.mostrar = mostrar; window.abrirFormulario = abrirFormulario; window.volver = volver; window.eliminarRegistroActual = eliminarRegistroActual; window.exportarCSV = exportarCSV; window.importarCSV = importarCSV; window.manejarNuevo = manejarNuevo; window.borrarElemento = borrarElemento; window.abrirGraficos = abrirGraficos; window.ejecutarBackupRotativo = ejecutarBackupRotativo; window.init = init; window.actualizarListas = actualizarListas;
   // Vistas/Modo
   window.setModo = setModo; window.toggleCasa = toggleCasa;
-  // Gráficos
+  // Gráficos (drill)
   window.handleGraficoBarClick = handleGraficoBarClick; window.abrirDetalleMovs = abrirDetalleMovs;
   // Dropbox
   window.dropboxStartLogin = dropboxStartLogin; window.dropboxUploadEncryptedBackup = dropboxUploadEncryptedBackup; window.dropboxDownloadAndRestore = dropboxDownloadAndRestore; window.dropboxSignOut = dropboxSignOut;
