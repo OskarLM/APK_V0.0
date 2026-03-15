@@ -1,16 +1,13 @@
 // === main.js ===
 //
-// Requiere utils.js con:
-//  - PIN_STORAGE_KEY, PIN_COOLDOWN_KEY
-//  - sha256(pin), getAttempts(), setAttempts(n), isInCooldown(), setCooldown(seg)
+// Cambios clave en esta versión:
+// - "Guardar en OneDrive" mantiene el nombre pero AHORA guarda SIEMPRE en local (Descargas) como mis_gastos_backup.json
+// - "Restaurar desde OneDrive" abre un selector de archivo local (sin File Picker avanzado)
+// - Se eliminan manejos de FileSystemFileHandle/IndexedDB/auto-load cloud para compatibilidad total con Pixel
 //
-// NOTAS DE ESTA VERSIÓN
-// - OneDrive (Opción C):
-//     * Auto-carga al iniciar sesión (tras PIN) desde un archivo fijo: "mis_gastos_backup.json"
-//     * Guardado siempre sobrescribiendo ese mismo archivo
-//     * Recuerda el handle (FileSystemFileHandle) en IndexedDB (una vez por dispositivo)
-// - Doble-tap/doble-click para pantalla completa (sin interferir con controles)
-// - Centrados/normalizaciones del footer preservados
+// Requiere utils.js con:
+//   PIN_STORAGE_KEY, PIN_COOLDOWN_KEY
+//   sha256(pin), getAttempts(), setAttempts(n), isInCooldown(), setCooldown(seg)
 
 /* ==========================
    BASES Y ESTADO GLOBAL
@@ -39,67 +36,7 @@ let hideCasa          = false;   // toggle del botón Casa
 let fullscreenMode    = false;   // pantalla completa (oculta filtros + footer)
 
 /* ==========================
-   OneDrive (File System Access + IndexedDB)
-========================== */
-const ONEDRIVE_DB_NAME   = 'fs-handles-db';
-const ONEDRIVE_DB_STORE  = 'handles';
-const ONEDRIVE_DB_KEY    = 'onedrive_backup_handle';
-const ONEDRIVE_FILE_NAME = 'mis_gastos_backup.json';
-
-// --- IndexedDB helpers (guardar/leer handle del archivo) ---
-function idbOpen() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(ONEDRIVE_DB_NAME, 1);
-    req.onupgradeneeded = (ev) => {
-      const db = ev.target.result;
-      if (!db.objectStoreNames.contains(ONEDRIVE_DB_STORE)) {
-        db.createObjectStore(ONEDRIVE_DB_STORE);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
-  });
-}
-async function idbSetHandle(handle) {
-  const db = await idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(ONEDRIVE_DB_STORE, 'readwrite');
-    tx.objectStore(ONEDRIVE_DB_STORE).put(handle, ONEDRIVE_DB_KEY);
-    tx.oncomplete = () => resolve(true);
-    tx.onerror    = () => reject(tx.error);
-  });
-}
-async function idbGetHandle() {
-  const db = await idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(ONEDRIVE_DB_STORE, 'readonly');
-    const req = tx.objectStore(ONEDRIVE_DB_STORE).get(ONEDRIVE_DB_KEY);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror   = () => reject(req.error);
-  });
-}
-async function idbClearHandle() {
-  const db = await idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(ONEDRIVE_DB_STORE, 'readwrite');
-    tx.objectStore(ONEDRIVE_DB_STORE).delete(ONEDRIVE_DB_KEY);
-    tx.oncomplete = () => resolve(true);
-    tx.onerror    = () => reject(tx.error);
-  });
-}
-
-// --- Permisos sobre FileSystemFileHandle ---
-async function verifyPermission(fileHandle, mode = 'read') {
-  if (!fileHandle) return false;
-  const opts = { mode: mode === 'readwrite' ? 'readwrite' : 'read' };
-  // Si ya la tenemos, OK:
-  if ((await fileHandle.queryPermission(opts)) === 'granted') return true;
-  // Pedirla:
-  return (await fileHandle.requestPermission(opts)) === 'granted';
-}
-
-/* ==========================
-   OneDrive: cifrado/descifrado (ya existente)
+   CIFRADO BACKUP (AES-GCM con PIN)
 ========================== */
 function hexToBytes(hex){ const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.slice(i,i+2),16)); return new Uint8Array(a); }
 function bytesToBase64(bytes){ if (typeof btoa==='function'){ let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]); return btoa(bin); } else { return Buffer.from(bytes).toString('base64'); } }
@@ -128,154 +65,6 @@ async function decryptBackup(payload){
   const ct = base64ToBytes(payload.ct);
   const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
   return JSON.parse(new TextDecoder().decode(pt));
-}
-
-/* ==========================
-   OneDrive: flujo Opción C
-========================== */
-// Vincular archivo (si no existe handle) y guardarlo en IndexedDB
-async function ensureOneDriveHandleForSave() {
-  let handle = await idbGetHandle();
-  try {
-    if (!handle) {
-      if (!window.showSaveFilePicker) throw new Error("File Picker no disponible.");
-      handle = await window.showSaveFilePicker({
-        suggestedName: ONEDRIVE_FILE_NAME,
-        types: [{ description:"Backup JSON", accept:{"application/json":[".json"]}}]
-      });
-      await idbSetHandle(handle);
-    }
-    // Verificar permiso de escritura
-    const ok = await verifyPermission(handle, 'readwrite');
-    if (!ok) throw new Error("Permiso de escritura denegado.");
-    return handle;
-  } catch (e) {
-    console.warn("No se pudo asegurar el handle de OneDrive:", e);
-    return null;
-  }
-}
-
-// Guardar SIEMPRE con el nombre fijo (sobrescribe)
-async function guardarCopiaEnOneDrive(){
-  try {
-    const handle = await ensureOneDriveHandleForSave();
-    if (!handle) { alert("No se pudo acceder a OneDrive. Intenta de nuevo."); return; }
-
-    const enc = await encryptBackup(buildBackupObject());
-    const blob = new Blob([JSON.stringify(enc, null, 2)], { type:"application/json" });
-
-    const writable = await handle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-
-    localStorage.setItem('backup_last_ts', String(Date.now()));
-    updateBackupIndicator();
-    alert(`✅ Copia guardada en OneDrive como ${ONEDRIVE_FILE_NAME}.`);
-  } catch (e) {
-    console.error(e);
-    alert("No se pudo guardar la copia en OneDrive.");
-  }
-}
-
-// Vincular ó re-vincular manualmente (por si mueves el archivo o cambias de carpeta)
-async function vincularArchivoOneDrive(){
-  try {
-    if (!window.showOpenFilePicker) throw new Error("File Picker no disponible.");
-    const [handle] = await window.showOpenFilePicker({
-      multiple:false,
-      types:[{ description:"Backup JSON", accept:{"application/json":[".json"]}}],
-      excludeAcceptAllOption:false
-    });
-    if (!handle) return;
-    const ok = await verifyPermission(handle, 'readwrite');
-    if (!ok) { alert("Permiso denegado. No se vinculó el archivo."); return; }
-    await idbSetHandle(handle);
-    alert(`🔗 Vinculado a ${handle.name || ONEDRIVE_FILE_NAME}.`);
-  } catch(e) {
-    if (e && e.name === "AbortError") return;
-    console.error(e);
-    alert("No se pudo vincular el archivo de OneDrive.");
-  }
-}
-
-// Limpiar vínculo (el archivo sigue en OneDrive, solo olvidamos el acceso)
-async function desvincularOneDrive(){
-  try {
-    await idbClearHandle();
-    alert("🔌 Se ha desvinculado OneDrive para este dispositivo.");
-  } catch(e) {
-    console.error(e); alert("No se pudo desvincular.");
-  }
-}
-
-// Restaurar (leer) desde OneDrive usando el handle recordado; si no, pedirlo
-async function restaurarCopiaDeOneDrive(){
-  try{
-    let handle = await idbGetHandle();
-    if (!handle) {
-      if (!window.showOpenFilePicker) throw new Error("File Picker no disponible.");
-      const [h] = await window.showOpenFilePicker({
-        multiple:false,
-        types:[{ description:"Backup JSON", accept:{"application/json":[".json"]}}]
-      });
-      handle = h;
-      await idbSetHandle(handle);
-    }
-    const ok = await verifyPermission(handle, 'read');
-    if (!ok) { alert("Permiso denegado para leer del archivo."); return; }
-
-    const file = await handle.getFile();
-    const text = await file.text();
-    const payload = JSON.parse(text);
-
-    const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
-    if (!data || !data.datos) throw new Error("Formato de copia inválido");
-
-    movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
-    catExtra    = Array.isArray(data.datos.catExtra)    ? data.datos.catExtra    : [];
-    subMaestra  = Array.isArray(data.datos.subMaestra)  ? data.datos.subMaestra  : [];
-    localStorage.setItem('movimientos', JSON.stringify(movimientos));
-    localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
-    localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
-    localStorage.setItem('backup_last_ts', String(Date.now()));
-    updateBackupIndicator();
-
-    actualizarListas(); resetPagina(); mostrar();
-    alert("✅ Copia restaurada correctamente desde OneDrive.");
-  }catch(e){
-    if (e && e.name === "AbortError") return;
-    console.error(e);
-    alert("No se pudo restaurar la copia desde OneDrive.");
-  }
-}
-
-// Auto-carga desde OneDrive al iniciar (tras pasar PIN)
-// Si hay handle recordado y permiso, carga automáticamente sin preguntar
-async function autoLoadFromOneDriveOnStart(){
-  try {
-    const handle = await idbGetHandle();
-    if (!handle) return; // primera vez en este dispositivo
-    const ok = await verifyPermission(handle, 'read');
-    if (!ok) return;
-
-    const file = await handle.getFile();
-    const text = await file.text();
-    const payload = JSON.parse(text);
-    const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
-
-    if (!data || !data.datos) return;
-
-    movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
-    catExtra    = Array.isArray(data.datos.catExtra)    ? data.datos.catExtra    : [];
-    subMaestra  = Array.isArray(data.datos.subMaestra)  ? data.datos.subMaestra  : [];
-    localStorage.setItem('movimientos', JSON.stringify(movimientos));
-    localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
-    localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
-    localStorage.setItem('backup_last_ts', String(Date.now()));
-    updateBackupIndicator();
-  } catch (e) {
-    console.warn("Autocarga OneDrive falló (se continúa con localStorage):", e);
-  }
 }
 
 /* ==========================
@@ -319,9 +108,6 @@ const buildCanonIndex = (preferida=[], secundaria=[]) => {
   return map;
 };
 
-/* ==========================
-   Helper: debounce
-========================== */
 function debounce(fn, delay = 150) {
   let t;
   return (...args) => {
@@ -348,15 +134,13 @@ const updateDots = () => {
 };
 const clearPin = () => { pinActual = ""; updateDots(); };
 
-// Al desbloquear → autocargar desde OneDrive (si hay vínculo) y luego iniciar UI
 function unlock() {
   const auth = document.getElementById("authOverlay");
   if (auth) auth.style.display = "none";
   const m = document.getElementById("movimientos");
   m.classList.remove("hidden");
   m.dataset.permiso = "OK";
-  // Autocarga y luego init
-  autoLoadFromOneDriveOnStart().finally(() => init());
+  init();
 }
 async function verifyAndUnlock(pinPlain) {
   const remainMs = isInCooldown();
@@ -406,7 +190,7 @@ const biometricAuth = async () => {
 };
 
 /* ==========================
-   INICIALIZACIÓN + GESTOS (DOBLE TAP)
+   GESTOS: Doble‑tap/doble‑click → Pantalla completa
 ========================== */
 document.addEventListener('DOMContentLoaded', () => {
   ensureDefaultPinHash().catch(console.error);
@@ -476,7 +260,7 @@ function iconBars(){
   <svg viewBox="0 0 24 24" class="btn-icon" fill="none" stroke="black" stroke-width="3">
     <line x1="18" y1="20" x2="18" y2="10"></line>
     <line x1="12" y1="20" x2="12" y2="4"></line>
-    <line x1="6"  y1="20" x2="6"  y2="14"></line>
+    <line x1="6"  y="20" x2="6"  y="14"></line>
   </svg>`;
 }
 function iconBack(){
@@ -527,6 +311,7 @@ function isCasaCategory(cat){
 /* ==========================
    MEDIDAS Y ANCLAJES (Movimientos → Gráficos)
 ========================== */
+let footerAnchors = { leftX:null, centerX:null, size:65 };
 function captureFooterAnchors(){
   try{
     const fr   = document.querySelector('.footer-row');
@@ -541,7 +326,6 @@ function captureFooterAnchors(){
     footerAnchors.size    = Math.round(centerRect.width || 65);
   }catch(e){ console.warn('No se pudieron capturar anclajes:', e); }
 }
-let footerAnchors = { leftX:null, centerX:null, size:65 };
 
 /* ==========================
    LAYOUT FOOTER (AUTOCURACIÓN)
@@ -651,7 +435,6 @@ function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   btnRight.style.opacity      = '1';
   btnRight.style.pointerEvents= 'auto';
 
-  // Respetar pantalla completa
   const cont = document.querySelector('.footer-controles');
   if (cont) cont.style.display = fullscreenMode ? 'none' : '';
 
@@ -720,7 +503,6 @@ function mostrar() {
   const movDiv = document.getElementById("movimientos");
   if (!movDiv || movDiv.dataset.permiso !== "OK") return;
 
-  // Respetar pantalla completa (filtros + footer)
   const filtros = document.querySelector('.filtros-wrapper');
   const footerB = document.querySelector('.footer-controles');
   if (filtros) filtros.style.display = fullscreenMode ? 'none' : '';
@@ -729,7 +511,6 @@ function mostrar() {
   const fsIds = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"];
   const fs = fsIds.map(id => { const el = document.getElementById(id); return el ? el.value : "TODOS"; });
 
-  // Filtrado + orden
   filtradosGlobal = (movimientos || [])
     .filter(m => {
       const d = (m.f || "").split("-");
@@ -758,11 +539,11 @@ function mostrar() {
     else balanceEl.style.color = "var(--electric-blue)";
   }
 
-  // FOOTER
+  // Footer botones
   const footerRow = document.querySelector('.footer-row');
   const plus = ensureThreePlusButtons();
   const btnLeft   = plus[0] || null; // IZQ
-  const btnCenter = plus[1] || null; // CENTRO (CASA)
+  const btnCenter = plus[1] || null; // CENTRO
   const btnRight  = plus[2] || null; // DER
 
   const modo = movDiv.dataset.modo || "lista";
@@ -1011,7 +792,7 @@ function renderizarGraficos2() {
   `;
   for (const m of meses){
     const v = sumaMes.get(m.key) || 0;
-    const h = Math.max(minBar, (Math.abs(v)/maxAbs) * 80); // mitad aprox (±)
+    const h = Math.max(minBar, (Math.abs(v)/maxAbs) * 80);
     const pos = v >= 0;
     const color = colorPorMes(v);
     const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
@@ -1209,7 +990,7 @@ const borrarElemento = (tipo) => {
       subMaestra.splice(idx,1);
       localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
       const origenActual = (document.getElementById("origen")||{}).value || "";
-      llenar('subcategoria', subMaestra, [], "", { origenActual });
+      llenar('subcategoria', subMaestra, [], "",{ origenActual });
     }
   }
 };
@@ -1448,83 +1229,9 @@ const importarCSV = (e) => {
 };
 
 /* ==========================
-   POPUPS (Premium / Nómina)
+   BACKUPS (rotativo local + GUARDAR/REST. LOCAL)
 ========================== */
-(function(){
-  const lanzarPopupPremium = (el,tipo) => {
-    const overlay=document.createElement('div'); overlay.className='premium-overlay';
-    overlay.innerHTML=`<div class="premium-content">
-      <div class="premium-title">NUEVO VALOR</div>
-      <input type="text" id="val_premium" class="premium-input" autofocus placeholder="..." />
-      <button class="btn-gold" id="confirm_premium">AÑADIR</button>
-      <button class="btn-silver" id="cancel_premium">CANCELAR</button>
-    </div>`;
-    document.body.appendChild(overlay);
-    const close = ()=> overlay.remove();
-    document.getElementById('confirm_premium').onclick=()=>{
-      const n=(document.getElementById('val_premium').value||"").trim();
-      if(n){ const select=el; select.dataset.nuevoValor = n; select.value = "+"; close(); setTimeout(()=>manejarNuevo(select, select.id),0); }
-      else close();
-    };
-    document.getElementById('cancel_premium').onclick=()=>{ el.value=""; close(); };
-  };
-  document.addEventListener('change',function(e){
-    if((e.target.id==='categoria'||e.target.id==='subcategoria') && e.target.value === "+"){
-      e.stopImmediatePropagation(); lanzarPopupPremium(e.target,e.target.id);
-    }
-  },true);
-})();
-
-(function(){
-  const lanzarPopupNomina = () => {
-    const overlay=document.createElement('div'); overlay.className='nomina-overlay';
-    overlay.innerHTML=`<div class="nomina-content">
-      <div class="nomina-title">¿QUIÉN COBRA?</div>
-      <button class="btn-nomina btn-oskar" id="btn_oskar">OSKAR</button>
-      <button class="btn-nomina btn-josune" id="btn_josune">JOSUNE</button>
-      <button class="btn-nomina btn-cancel" id="btn_cancel_nom">CANCELAR</button>
-    </div>`;
-    document.body.appendChild(overlay);
-    const close = ()=> overlay.remove();
-    document.getElementById('btn_oskar').onclick=()=>{ document.getElementById("categoria").innerHTML=`<option value="Oskar" selected>Oskar</option>`; close(); };
-    document.getElementById('btn_josune').onclick=()=>{ document.getElementById("categoria").innerHTML=`<option value="Josune" selected>Josune</option>`; close(); };
-    document.getElementById('btn_cancel_nom').onclick=()=>{ document.getElementById("origen").value="Gasto";
-      llenar('categoria',catBase,catExtra,"",{origenActual:"Gasto"}); llenar('subcategoria',subMaestra,[], "",{origenActual:"Gasto"}); close(); };
-  };
-
-  document.addEventListener('change',function(e){
-    if(e.target.id === 'origen'){
-      const o = e.target.value;
-      if (o === "Nómina") {
-        const fVal = (document.getElementById("fecha")||{}).value || new Date().toISOString().split("T")[0];
-        const mIdx = new Date(fVal + "T00:00:00").getMonth();
-        const sub = document.getElementById("subcategoria");
-        if (sub) sub.innerHTML = `<option value="${mesesLabel[mIdx]}" selected>${mesesLabel[mIdx]}</option>`;
-        lanzarPopupNomina();
-      } else {
-        llenar('categoria',catBase,catExtra,"",{origenActual:o});
-        llenar('subcategoria',subMaestra,[], "",{origenActual:o});
-      }
-    }
-  },true);
-})();
-
-/* ==========================
-   ELIMINAR REGISTRO
-========================== */
-window.eliminarRegistroActual = function(){
-  const idAEliminar = (document.getElementById("editId")||{}).value;
-  if (!idAEliminar) return;
-  if (confirm("¿ESTÁS SEGURO DE QUE DESEAS ELIMINAR ESTE REGISTRO?")) {
-    movimientos = movimientos.filter(m => m.id.toString() !== idAEliminar.toString());
-    localStorage.setItem('movimientos', JSON.stringify(movimientos));
-    volver();
-  }
-};
-
-/* ==========================
-   BACKUPS (rotativo local y utilidades OneDrive)
-========================== */
+// Rotativo local (para auto-backup ocasional)
 async function createAndStoreLocalBackup(){
   const enc = await encryptBackup(buildBackupObject());
   const idx = ((parseInt(localStorage.getItem('backup_idx')||'0',10)) % 5) + 1;
@@ -1534,24 +1241,66 @@ async function createAndStoreLocalBackup(){
   updateBackupIndicator();
   return enc;
 }
-async function downloadEncryptedBackup(enc, prefix='auto_backup'){
-  const d=new Date(); const YYYY=d.getFullYear(), MM=String(d.getMonth()+1).padStart(2,'0'), DD=String(d.getDate()).padStart(2,'0');
-  const hh=String(d.getHours()).padStart(2,'0'), mm=String(d.getMinutes()).padStart(2,'0');
-  const filename=`${prefix}_${YYYY}-${MM}-${DD}_${hh}-${mm}.json`;
+async function downloadEncryptedBackup(enc, filename='mis_gastos_backup.json'){
   const blob=new Blob([JSON.stringify(enc,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
-const ejecutarBackupRotativo = async () => {
-  try{ const enc=await createAndStoreLocalBackup(); await downloadEncryptedBackup(enc,'auto_backup'); }
-  catch(e){ console.error("Backup automático falló:", e); }
-};
+
+// ⚠️ Mantiene el nombre "Guardar en OneDrive", pero guarda SIEMPRE en local (Descargas)
+async function guardarCopiaEnOneDrive(){
+  try{
+    const enc = await encryptBackup(buildBackupObject());
+    await downloadEncryptedBackup(enc, 'mis_gastos_backup.json');
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator();
+    alert("✅ Copia guardada en local como mis_gastos_backup.json (puedes subirla a OneDrive manualmente).");
+  }catch(e){
+    console.error(e);
+    alert("No se pudo crear la copia local.");
+  }
+}
+
+// "Restaurar desde OneDrive" → restaurar desde archivo local (selector)
+async function restaurarCopiaDeOneDrive(){
+  try{
+    const file = await new Promise((resolve, reject)=>{
+      const inp=document.createElement('input'); inp.type='file'; inp.accept='application/json';
+      inp.onchange=()=> resolve(inp.files[0]);
+      inp.click();
+      setTimeout(()=>{ if(!inp.files || !inp.files[0]) reject(new Error("No file")); }, 20000);
+    });
+    if (!file) return;
+
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
+    if (!data || !data.datos) throw new Error("Formato de copia inválido");
+
+    movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
+    catExtra    = Array.isArray(data.datos.catExtra)    ? data.datos.catExtra    : [];
+    subMaestra  = Array.isArray(data.datos.subMaestra)  ? data.datos.subMaestra  : [];
+    localStorage.setItem('movimientos', JSON.stringify(movimientos));
+    localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+    localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator();
+
+    actualizarListas(); resetPagina(); mostrar();
+    alert("✅ Copia restaurada correctamente desde archivo local.");
+  }catch(e){
+    if (e && e.name === "AbortError") return;
+    console.error(e); alert("No se pudo restaurar la copia (archivo inválido o cancelado).");
+  }
+}
 
 function ensureBackupIndicator(){
   const top=document.querySelector('.topbar'); if (!top) return;
   if (!document.getElementById('backupIndicator')){
-    const span=document.createElement('span'); span.id='backupIndicator'; className='backup-indicator';
-    // Fix: asignar correctamente la clase
+    const span=document.createElement('span');
+    span.id='backupIndicator';
     span.className='backup-indicator';
     span.innerHTML=`<span class="dot"></span><span class="txt">Última copia: —</span>`;
     top.appendChild(span);
@@ -1588,20 +1337,21 @@ if ('serviceWorker' in navigator) {
 }
 
 /* ==========================
-   EXPORTAR A GLOBAL
+   EXPORTAR GLOBAL
 ========================== */
-// No-op para compatibilidad con el botón RESET del HTML
-function resetTotal(){ /* sin operación */ }
+function resetTotal(){ /* sin operación (compat) */ }
 
 // PIN
 window.pressPin = pressPin;
 window.clearPin = clearPin;
 window.biometricAuth = biometricAuth;
+
 // Navegación y acciones
 window.resetPagina = resetPagina;
 window.mostrar = mostrar;
 window.abrirFormulario = abrirFormulario;
 window.volver = volver;
+
 window.exportarCSV = exportarCSV;
 window.importarCSV = importarCSV;
 window.manejarNuevo = manejarNuevo;
@@ -1610,14 +1360,15 @@ window.abrirGraficos = abrirGraficos;
 window.ejecutarBackupRotativo = ejecutarBackupRotativo;
 window.init = init;
 window.actualizarListas = actualizarListas;
+
 // Vistas/Modo
 window.setModo = setModo;
 window.toggleCasa = toggleCasa;
+
 // Gráficos (drill)
 window.handleGraficoBarClick = handleGraficoBarClick;
 window.abrirDetalleMovs = abrirDetalleMovs;
-// OneDrive helpers (opcional en UI)
-window.vincularArchivoOneDrive = vincularArchivoOneDrive;
-window.desvincularOneDrive = desvincularOneDrive;
+
+// Backups (mantienen nombre pero son locales)
 window.guardarCopiaEnOneDrive = guardarCopiaEnOneDrive;
 window.restaurarCopiaDeOneDrive = restaurarCopiaDeOneDrive;
