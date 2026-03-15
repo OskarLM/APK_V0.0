@@ -3,6 +3,14 @@
 // Requiere utils.js con:
 //  - PIN_STORAGE_KEY, PIN_COOLDOWN_KEY
 //  - sha256(pin), getAttempts(), setAttempts(n), isInCooldown(), setCooldown(seg)
+//
+// NOTAS DE ESTA VERSIÓN
+// - OneDrive (Opción C):
+//     * Auto-carga al iniciar sesión (tras PIN) desde un archivo fijo: "mis_gastos_backup.json"
+//     * Guardado siempre sobrescribiendo ese mismo archivo
+//     * Recuerda el handle (FileSystemFileHandle) en IndexedDB (una vez por dispositivo)
+// - Doble-tap/doble-click para pantalla completa (sin interferir con controles)
+// - Centrados/normalizaciones del footer preservados
 
 /* ==========================
    BASES Y ESTADO GLOBAL
@@ -27,17 +35,248 @@ let subMaestra  = JSON.parse(localStorage.getItem('subMaestra_v2')) || subBase.s
 let registrosVisibles = 25;
 let filtradosGlobal   = [];
 let pinActual         = "";
-let hideCasa          = false;  // toggle del botón Casa
+let hideCasa          = false;   // toggle del botón Casa
+let fullscreenMode    = false;   // pantalla completa (oculta filtros + footer)
 
-// Modo pantalla completa (oculta barra superior de filtros + bloque inferior completo)
-let fullscreenMode = false;
+/* ==========================
+   OneDrive (File System Access + IndexedDB)
+========================== */
+const ONEDRIVE_DB_NAME   = 'fs-handles-db';
+const ONEDRIVE_DB_STORE  = 'handles';
+const ONEDRIVE_DB_KEY    = 'onedrive_backup_handle';
+const ONEDRIVE_FILE_NAME = 'mis_gastos_backup.json';
 
-// Anclajes medidos en MOVIMIENTOS para reutilizar en G1/G2
-let footerAnchors = {
-  leftX: null,     // posición X (px) del botón Gráficos en Movimientos
-  centerX: null,   // posición X (px) del botón "+" en Movimientos (referencia para ancla derecha virtual)
-  size: 65         // tamaño base del .plus (fallback)
-};
+// --- IndexedDB helpers (guardar/leer handle del archivo) ---
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(ONEDRIVE_DB_NAME, 1);
+    req.onupgradeneeded = (ev) => {
+      const db = ev.target.result;
+      if (!db.objectStoreNames.contains(ONEDRIVE_DB_STORE)) {
+        db.createObjectStore(ONEDRIVE_DB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+async function idbSetHandle(handle) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ONEDRIVE_DB_STORE, 'readwrite');
+    tx.objectStore(ONEDRIVE_DB_STORE).put(handle, ONEDRIVE_DB_KEY);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror    = () => reject(tx.error);
+  });
+}
+async function idbGetHandle() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ONEDRIVE_DB_STORE, 'readonly');
+    const req = tx.objectStore(ONEDRIVE_DB_STORE).get(ONEDRIVE_DB_KEY);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror   = () => reject(req.error);
+  });
+}
+async function idbClearHandle() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ONEDRIVE_DB_STORE, 'readwrite');
+    tx.objectStore(ONEDRIVE_DB_STORE).delete(ONEDRIVE_DB_KEY);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror    = () => reject(tx.error);
+  });
+}
+
+// --- Permisos sobre FileSystemFileHandle ---
+async function verifyPermission(fileHandle, mode = 'read') {
+  if (!fileHandle) return false;
+  const opts = { mode: mode === 'readwrite' ? 'readwrite' : 'read' };
+  // Si ya la tenemos, OK:
+  if ((await fileHandle.queryPermission(opts)) === 'granted') return true;
+  // Pedirla:
+  return (await fileHandle.requestPermission(opts)) === 'granted';
+}
+
+/* ==========================
+   OneDrive: cifrado/descifrado (ya existente)
+========================== */
+function hexToBytes(hex){ const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.slice(i,i+2),16)); return new Uint8Array(a); }
+function bytesToBase64(bytes){ if (typeof btoa==='function'){ let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]); return btoa(bin); } else { return Buffer.from(bytes).toString('base64'); } }
+function base64ToBytes(b64){ if (typeof atob==='function'){ const bin=atob(b64); const out=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out; } else { return new Uint8Array(Buffer.from(b64,'base64')); } }
+
+async function getAesKeyFromPin(){
+  await ensureDefaultPinHash();
+  const hex = localStorage.getItem(PIN_STORAGE_KEY);
+  const keyBytes = hexToBytes(hex);
+  return await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt','decrypt']);
+}
+function buildBackupObject(){
+  return { meta:{ createdAt:new Date().toISOString(), app:"mis-gastos", version:"V1.0.26" },
+           datos:{ movimientos, catExtra, subMaestra } };
+}
+async function encryptBackup(obj){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await getAesKeyFromPin();
+  const data = new TextEncoder().encode(JSON.stringify(obj));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, data);
+  return { v:1, alg:'AES-GCM', iv: bytesToBase64(iv), ct: bytesToBase64(new Uint8Array(ct)) };
+}
+async function decryptBackup(payload){
+  const key = await getAesKeyFromPin();
+  const iv = base64ToBytes(payload.iv);
+  const ct = base64ToBytes(payload.ct);
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* ==========================
+   OneDrive: flujo Opción C
+========================== */
+// Vincular archivo (si no existe handle) y guardarlo en IndexedDB
+async function ensureOneDriveHandleForSave() {
+  let handle = await idbGetHandle();
+  try {
+    if (!handle) {
+      if (!window.showSaveFilePicker) throw new Error("File Picker no disponible.");
+      handle = await window.showSaveFilePicker({
+        suggestedName: ONEDRIVE_FILE_NAME,
+        types: [{ description:"Backup JSON", accept:{"application/json":[".json"]}}]
+      });
+      await idbSetHandle(handle);
+    }
+    // Verificar permiso de escritura
+    const ok = await verifyPermission(handle, 'readwrite');
+    if (!ok) throw new Error("Permiso de escritura denegado.");
+    return handle;
+  } catch (e) {
+    console.warn("No se pudo asegurar el handle de OneDrive:", e);
+    return null;
+  }
+}
+
+// Guardar SIEMPRE con el nombre fijo (sobrescribe)
+async function guardarCopiaEnOneDrive(){
+  try {
+    const handle = await ensureOneDriveHandleForSave();
+    if (!handle) { alert("No se pudo acceder a OneDrive. Intenta de nuevo."); return; }
+
+    const enc = await encryptBackup(buildBackupObject());
+    const blob = new Blob([JSON.stringify(enc, null, 2)], { type:"application/json" });
+
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator();
+    alert(`✅ Copia guardada en OneDrive como ${ONEDRIVE_FILE_NAME}.`);
+  } catch (e) {
+    console.error(e);
+    alert("No se pudo guardar la copia en OneDrive.");
+  }
+}
+
+// Vincular ó re-vincular manualmente (por si mueves el archivo o cambias de carpeta)
+async function vincularArchivoOneDrive(){
+  try {
+    if (!window.showOpenFilePicker) throw new Error("File Picker no disponible.");
+    const [handle] = await window.showOpenFilePicker({
+      multiple:false,
+      types:[{ description:"Backup JSON", accept:{"application/json":[".json"]}}],
+      excludeAcceptAllOption:false
+    });
+    if (!handle) return;
+    const ok = await verifyPermission(handle, 'readwrite');
+    if (!ok) { alert("Permiso denegado. No se vinculó el archivo."); return; }
+    await idbSetHandle(handle);
+    alert(`🔗 Vinculado a ${handle.name || ONEDRIVE_FILE_NAME}.`);
+  } catch(e) {
+    if (e && e.name === "AbortError") return;
+    console.error(e);
+    alert("No se pudo vincular el archivo de OneDrive.");
+  }
+}
+
+// Limpiar vínculo (el archivo sigue en OneDrive, solo olvidamos el acceso)
+async function desvincularOneDrive(){
+  try {
+    await idbClearHandle();
+    alert("🔌 Se ha desvinculado OneDrive para este dispositivo.");
+  } catch(e) {
+    console.error(e); alert("No se pudo desvincular.");
+  }
+}
+
+// Restaurar (leer) desde OneDrive usando el handle recordado; si no, pedirlo
+async function restaurarCopiaDeOneDrive(){
+  try{
+    let handle = await idbGetHandle();
+    if (!handle) {
+      if (!window.showOpenFilePicker) throw new Error("File Picker no disponible.");
+      const [h] = await window.showOpenFilePicker({
+        multiple:false,
+        types:[{ description:"Backup JSON", accept:{"application/json":[".json"]}}]
+      });
+      handle = h;
+      await idbSetHandle(handle);
+    }
+    const ok = await verifyPermission(handle, 'read');
+    if (!ok) { alert("Permiso denegado para leer del archivo."); return; }
+
+    const file = await handle.getFile();
+    const text = await file.text();
+    const payload = JSON.parse(text);
+
+    const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
+    if (!data || !data.datos) throw new Error("Formato de copia inválido");
+
+    movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
+    catExtra    = Array.isArray(data.datos.catExtra)    ? data.datos.catExtra    : [];
+    subMaestra  = Array.isArray(data.datos.subMaestra)  ? data.datos.subMaestra  : [];
+    localStorage.setItem('movimientos', JSON.stringify(movimientos));
+    localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+    localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator();
+
+    actualizarListas(); resetPagina(); mostrar();
+    alert("✅ Copia restaurada correctamente desde OneDrive.");
+  }catch(e){
+    if (e && e.name === "AbortError") return;
+    console.error(e);
+    alert("No se pudo restaurar la copia desde OneDrive.");
+  }
+}
+
+// Auto-carga desde OneDrive al iniciar (tras pasar PIN)
+// Si hay handle recordado y permiso, carga automáticamente sin preguntar
+async function autoLoadFromOneDriveOnStart(){
+  try {
+    const handle = await idbGetHandle();
+    if (!handle) return; // primera vez en este dispositivo
+    const ok = await verifyPermission(handle, 'read');
+    if (!ok) return;
+
+    const file = await handle.getFile();
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
+
+    if (!data || !data.datos) return;
+
+    movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
+    catExtra    = Array.isArray(data.datos.catExtra)    ? data.datos.catExtra    : [];
+    subMaestra  = Array.isArray(data.datos.subMaestra)  ? data.datos.subMaestra  : [];
+    localStorage.setItem('movimientos', JSON.stringify(movimientos));
+    localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+    localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+    localStorage.setItem('backup_last_ts', String(Date.now()));
+    updateBackupIndicator();
+  } catch (e) {
+    console.warn("Autocarga OneDrive falló (se continúa con localStorage):", e);
+  }
+}
 
 /* ==========================
    UTILIDADES / NORMALIZACIÓN
@@ -80,10 +319,8 @@ const buildCanonIndex = (preferida=[], secundaria=[]) => {
   return map;
 };
 
-// ⚠️ IMPORTANTE: la función esc(s) se usa desde utils.js (no duplicamos aquí)
-
 /* ==========================
-   Helper: debounce (rendimiento, sin cambiar UX)
+   Helper: debounce
 ========================== */
 function debounce(fn, delay = 150) {
   let t;
@@ -110,14 +347,17 @@ const updateDots = () => {
   for (let i=0;i<dots.length;i++) dots[i].classList.toggle('filled', i < pinActual.length);
 };
 const clearPin = () => { pinActual = ""; updateDots(); };
-const unlock = () => {
+
+// Al desbloquear → autocargar desde OneDrive (si hay vínculo) y luego iniciar UI
+function unlock() {
   const auth = document.getElementById("authOverlay");
   if (auth) auth.style.display = "none";
   const m = document.getElementById("movimientos");
   m.classList.remove("hidden");
   m.dataset.permiso = "OK";
-  init();
-};
+  // Autocarga y luego init
+  autoLoadFromOneDriveOnStart().finally(() => init());
+}
 async function verifyAndUnlock(pinPlain) {
   const remainMs = isInCooldown();
   if (remainMs > 0) {
@@ -166,7 +406,7 @@ const biometricAuth = async () => {
 };
 
 /* ==========================
-   INICIALIZACIÓN Y GESTOS (DOBLE‑TAP / DOBLE‑CLICK)
+   INICIALIZACIÓN + GESTOS (DOBLE TAP)
 ========================== */
 document.addEventListener('DOMContentLoaded', () => {
   ensureDefaultPinHash().catch(console.error);
@@ -176,7 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.documentElement) document.documentElement.style.touchAction = 'manipulation';
   if (document.body) document.body.style.touchAction = 'manipulation';
 
-  // Doble‑tap / doble‑click para alternar pantalla completa (excepto en controles interactivos)
+  // Doble‑tap/doble‑click fuera de controles para alternar pantalla completa
   let _lastTap = 0;
   const TAP_WINDOW = 250; // ms
   const filtrosSel = '.filtros-wrapper';
@@ -184,9 +424,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const isInteractive = (el) => {
     if (!el) return false;
-    // Si toca dentro de filtros o footer, ignoramos el gesto (usabilidad)
     if (el.closest(filtrosSel) || el.closest(footerSel)) return true;
-    // Controles típicos
     return !!el.closest('button, a, select, input, textarea, label, [role="button"], [tabindex]');
   };
 
@@ -200,24 +438,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const toggleFullscreenUI = () => {
     fullscreenMode = !fullscreenMode;
     applyUIVisibility();
-    // Reacomodar footer si reaparece en vistas de gráficos
     requestAnimationFrame(() => mostrar());
-    // Opcional: persistencia en sesión
     try { sessionStorage.setItem('ui_fullscreen', fullscreenMode ? '1' : '0'); } catch {}
   };
 
-  // Restaurar estado de fullscreen de la sesión anterior (opcional)
   try {
     const prev = sessionStorage.getItem('ui_fullscreen');
     if (prev === '1') { fullscreenMode = true; applyUIVisibility(); }
   } catch {}
 
-  // Handler táctil (doble‑tap)
   window.addEventListener('touchstart', (ev) => {
     const t = Date.now();
     const target = ev.target;
-    if (isInteractive(target)) return; // no interferir con controles
-
+    if (isInteractive(target)) return;
     if (t - _lastTap <= TAP_WINDOW) {
       ev.preventDefault();
       toggleFullscreenUI();
@@ -227,7 +460,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, { passive: false });
 
-  // Handler ratón (doble‑click)
   window.addEventListener('dblclick', (ev) => {
     const target = ev.target;
     if (isInteractive(target)) return;
@@ -309,6 +541,7 @@ function captureFooterAnchors(){
     footerAnchors.size    = Math.round(centerRect.width || 65);
   }catch(e){ console.warn('No se pudieron capturar anclajes:', e); }
 }
+let footerAnchors = { leftX:null, centerX:null, size:65 };
 
 /* ==========================
    LAYOUT FOOTER (AUTOCURACIÓN)
@@ -357,7 +590,7 @@ function _normalizarTamaniosFooter(btnLeft, btnCenter, btnRight) {
 }
 
 /* ==========================
-   CENTRADO REAL (post‑layout, medición exacta)
+   CENTRADO REAL (post‑layout)
 ========================== */
 function _recentrarCasa(container, btnLeft, btnCenter, btnRight) {
   if (!container || !btnLeft || !btnCenter) return;
@@ -399,7 +632,6 @@ function _recentrarCasa(container, btnLeft, btnCenter, btnRight) {
 ========================== */
 function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
-
   const cs = getComputedStyle(container);
   if (cs.position === 'static') container.style.position = 'relative';
 
@@ -419,16 +651,14 @@ function layoutFooterGrafico1(container, btnLeft, btnCenter, btnRight){
   btnRight.style.opacity      = '1';
   btnRight.style.pointerEvents= 'auto';
 
-  // Respetar modo pantalla completa (bloque inferior entero)
+  // Respetar pantalla completa
   const cont = document.querySelector('.footer-controles');
   if (cont) cont.style.display = fullscreenMode ? 'none' : '';
 
   _recentrarCasa(container, btnLeft, btnCenter, btnRight);
 }
-
 function layoutFooterGrafico2(container, btnLeft, btnCenter, btnRight){
   if (!container || !btnLeft || !btnCenter || !btnRight) return;
-
   const cs = getComputedStyle(container);
   if (cs.position === 'static') container.style.position = 'relative';
 
@@ -490,7 +720,7 @@ function mostrar() {
   const movDiv = document.getElementById("movimientos");
   if (!movDiv || movDiv.dataset.permiso !== "OK") return;
 
-  // Garantizar visibilidad de filtros/footer según fullscreenMode
+  // Respetar pantalla completa (filtros + footer)
   const filtros = document.querySelector('.filtros-wrapper');
   const footerB = document.querySelector('.footer-controles');
   if (filtros) filtros.style.display = fullscreenMode ? 'none' : '';
@@ -528,12 +758,12 @@ function mostrar() {
     else balanceEl.style.color = "var(--electric-blue)";
   }
 
-  // FOOTER (selección robusta + autocuración)
+  // FOOTER
   const footerRow = document.querySelector('.footer-row');
   const plus = ensureThreePlusButtons();
   const btnLeft   = plus[0] || null; // IZQ
-  const btnCenter = plus[1] || null; // CENTRO (CASA en G1/G2)
-  const btnRight  = plus[2] || null; // DERECHA (o “fantasma”)
+  const btnCenter = plus[1] || null; // CENTRO (CASA)
+  const btnRight  = plus[2] || null; // DER
 
   const modo = movDiv.dataset.modo || "lista";
   const aplicarEstadoCasa = () => { if (btnCenter) btnCenter.classList.toggle("active", !!hideCasa); };
@@ -578,7 +808,6 @@ function mostrar() {
     layoutFooterReset(btnLeft, btnCenter, btnRight);
     layoutBalanceReset(balanceEl);
 
-    // Respetar modo pantalla completa también en lista
     const cont = document.querySelector('.footer-controles');
     if (cont) cont.style.display = fullscreenMode ? 'none' : '';
   }
@@ -782,7 +1011,7 @@ function renderizarGraficos2() {
   `;
   for (const m of meses){
     const v = sumaMes.get(m.key) || 0;
-    const h = Math.max(minBar, (Math.abs(v)/maxAbs) * 80);
+    const h = Math.max(minBar, (Math.abs(v)/maxAbs) * 80); // mitad aprox (±)
     const pos = v >= 0;
     const color = colorPorMes(v);
     const mesIdx = new Date(m.key + "-01T00:00:00").getMonth();
@@ -847,7 +1076,7 @@ const llenar = (id, base, extra, pre = "", opts = {}) => {
     if (ocultarMeses) values = values.filter(v => !NOMINA_SUBS.includes(v));
   }
   values.sort((a,b)=>a.localeCompare(b,'es')).forEach(v=>{
-    s.innerHTML = s.innerHTML + `<option value="${v}" ${v === pre ? 'selected' : ''}>${v}</option>`;
+    s.innerHTML += `<option value="${v}" ${v === pre ? 'selected' : ''}>${v}</option>`;
   });
   if (pre && !values.includes(pre)) s.innerHTML += `<option value="${pre}" selected hidden>${pre}</option>`;
   if (id !== "origen") s.innerHTML += `<option value="+">+ Añadir nuevo...</option>`;
@@ -1155,8 +1384,8 @@ const importarCSV = (e) => {
       };
       const parseEuroNumber = (s) => {
         let t=(s||'').toString().trim();
-        t=t.replace(/\.(?=\d{3}(?:\D|$))/g,''); // puntos de miles
-        t=t.replace(',', '.');                  // coma decimal
+        t=t.replace(/\.(?=\d{3}(?:\D|$))/g,''); // miles
+        t=t.replace(',', '.');                  // decimal
         const n=parseFloat(t); return isNaN(n)?0:n;
       };
       const cleanText = (s) => {
@@ -1294,36 +1523,8 @@ window.eliminarRegistroActual = function(){
 };
 
 /* ==========================
-   BACKUPS (cifrado con PIN)
+   BACKUPS (rotativo local y utilidades OneDrive)
 ========================== */
-function hexToBytes(hex){ const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.slice(i,i+2),16)); return new Uint8Array(a); }
-function bytesToBase64(bytes){ if (typeof btoa==='function'){ let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]); return btoa(bin); } else { return Buffer.from(bytes).toString('base64'); } }
-function base64ToBytes(b64){ if (typeof atob==='function'){ const bin=atob(b64); const out=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out; } else { return new Uint8Array(Buffer.from(b64,'base64')); } }
-
-async function getAesKeyFromPin(){
-  await ensureDefaultPinHash();
-  const hex = localStorage.getItem(PIN_STORAGE_KEY);
-  const keyBytes = hexToBytes(hex);
-  return await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt','decrypt']);
-}
-function buildBackupObject(){
-  return { meta:{ createdAt:new Date().toISOString(), app:"mis-gastos", version:"V1.0.26" },
-           datos:{ movimientos, catExtra, subMaestra } };
-}
-async function encryptBackup(obj){
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await getAesKeyFromPin();
-  const data = new TextEncoder().encode(JSON.stringify(obj));
-  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, data);
-  return { v:1, alg:'AES-GCM', iv: bytesToBase64(iv), ct: bytesToBase64(new Uint8Array(ct)) };
-}
-async function decryptBackup(payload){
-  const key = await getAesKeyFromPin();
-  const iv = base64ToBytes(payload.iv);
-  const ct = base64ToBytes(payload.ct);
-  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, ct);
-  return JSON.parse(new TextDecoder().decode(pt));
-}
 async function createAndStoreLocalBackup(){
   const enc = await encryptBackup(buildBackupObject());
   const idx = ((parseInt(localStorage.getItem('backup_idx')||'0',10)) % 5) + 1;
@@ -1345,64 +1546,15 @@ const ejecutarBackupRotativo = async () => {
   try{ const enc=await createAndStoreLocalBackup(); await downloadEncryptedBackup(enc,'auto_backup'); }
   catch(e){ console.error("Backup automático falló:", e); }
 };
-async function guardarCopiaEnOneDrive(){
-  try{
-    const enc = await encryptBackup(buildBackupObject());
-    const d=new Date(); const YYYY=d.getFullYear(), MM=String(d.getMonth()+1).padStart(2,'0'), DD=String(d.getDate()).padStart(2,'0');
-    const hh=String(d.getHours()).padStart(2,'0'), mm=String(d.getMinutes()).padStart(2,'0');
-    const filename=`backup_onedrive_${YYYY}-${MM}-${DD}_${hh}-${mm}.json`;
-    const blob=new Blob([JSON.stringify(enc,null,2)],{type:'application/json'});
 
-    if (window.showSaveFilePicker){
-      const handle = await window.showSaveFilePicker({ suggestedName:filename, types:[{description:"JSON Backup", accept:{"application/json":[".json"]}}] });
-      const writable = await handle.createWritable(); await writable.write(blob); await writable.close();
-      localStorage.setItem('backup_last_ts', String(Date.now())); updateBackupIndicator();
-      alert("📁 Copia guardada. Elige una carpeta OneDrive en el selector para sincronizar.");
-    } else {
-      const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-      localStorage.setItem('backup_last_ts', String(Date.now())); updateBackupIndicator();
-      alert("Se ha descargado el backup (tu navegador no permite selección de carpeta).");
-    }
-  }catch(e){ console.error(e); alert("No se pudo guardar la copia de seguridad."); }
-}
-async function restaurarCopiaDeOneDrive(){
-  try{
-    let file=null;
-    if (window.showOpenFilePicker){
-      const [handle] = await window.showOpenFilePicker({ multiple:false, types:[{description:"JSON Backup", accept:{"application/json":[".json"]}}] });
-      file = await handle.getFile();
-    } else {
-      file = await new Promise(function(resolve,reject){
-        const inp=document.createElement('input'); inp.type='file'; inp.accept='application/json';
-        inp.onchange=function(){ resolve(inp.files[0]); }; inp.click();
-        setTimeout(function(){ if(!inp.files || !inp.files[0]) reject(new Error("No file")); },20000);
-      });
-    }
-    const text=await file.text(); const payload=JSON.parse(text);
-    const data = (payload && payload.ct && payload.iv) ? await decryptBackup(payload) : payload;
-    if (!data || !data.datos) throw new Error("Formato de copia inválido");
-
-    movimientos = Array.isArray(data.datos.movimientos) ? data.datos.movimientos : [];
-    catExtra    = Array.isArray(data.datos.catExtra)    ? data.datos.catExtra    : [];
-    subMaestra  = Array.isArray(data.datos.subMaestra)  ? data.datos.subMaestra  : [];
-    localStorage.setItem('movimientos', JSON.stringify(movimientos));
-    localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
-    localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
-    localStorage.setItem('backup_last_ts', String(Date.now())); updateBackupIndicator();
-
-    actualizarListas(); resetPagina(); mostrar();
-    alert("✅ Copia restaurada correctamente.");
-  }catch(e){
-    if (e && e.name === "AbortError") return;
-    console.error(e); alert("No se pudo restaurar la copia. ¿PIN correcto? ¿Archivo válido?");
-  }
-}
 function ensureBackupIndicator(){
   const top=document.querySelector('.topbar'); if (!top) return;
   if (!document.getElementById('backupIndicator')){
-    const span=document.createElement('span'); span.id='backupIndicator'; span.className='backup-indicator';
-    span.innerHTML=`<span class="dot"></span><span class="txt">Última copia: —</span>`; top.appendChild(span);
+    const span=document.createElement('span'); span.id='backupIndicator'; className='backup-indicator';
+    // Fix: asignar correctamente la clase
+    span.className='backup-indicator';
+    span.innerHTML=`<span class="dot"></span><span class="txt">Última copia: —</span>`;
+    top.appendChild(span);
   }
 }
 function humanAgo(ts){
@@ -1436,8 +1588,9 @@ if ('serviceWorker' in navigator) {
 }
 
 /* ==========================
-   COMPAT (RESET) + EXPORTAR GLOBAL
+   EXPORTAR A GLOBAL
 ========================== */
+// No-op para compatibilidad con el botón RESET del HTML
 function resetTotal(){ /* sin operación */ }
 
 // PIN
@@ -1463,6 +1616,8 @@ window.toggleCasa = toggleCasa;
 // Gráficos (drill)
 window.handleGraficoBarClick = handleGraficoBarClick;
 window.abrirDetalleMovs = abrirDetalleMovs;
-// Backups
+// OneDrive helpers (opcional en UI)
+window.vincularArchivoOneDrive = vincularArchivoOneDrive;
+window.desvincularOneDrive = desvincularOneDrive;
 window.guardarCopiaEnOneDrive = guardarCopiaEnOneDrive;
 window.restaurarCopiaDeOneDrive = restaurarCopiaDeOneDrive;
