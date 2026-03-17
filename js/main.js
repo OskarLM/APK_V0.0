@@ -1,4 +1,4 @@
-// === main.js — Botón G2 real (sin fantasma) + CASA centrada + BALANCE en el mismo sitio relativo del footer que en Movimientos ===
+// === main.js v16 — Botón G2 real (sin fantasma) + CASA centrada + Balance consistente + Doble‑tap con giro + Import/Export desde Balance ===
 if (window.__APP_LOADED__) {
   // Evitar doble carga
 } else {
@@ -182,7 +182,7 @@ if (window.__APP_LOADED__) {
   }
 
   // ==========================
-  // FULLSCREEN (doble‑tap / dblclick) + ENLACE SEGURO GUARDAR
+  // FULLSCREEN + DOBLE‑TAP ARMADO GIRO + ENLACE GUARDAR
   // ==========================
   function bindGuardarHandlers() {
     const form = document.getElementById('form');
@@ -206,12 +206,18 @@ if (window.__APP_LOADED__) {
     requestAnimationFrame(() => mostrar());
     try { sessionStorage.setItem('ui_fullscreen', fullscreenMode ? '1' : '0'); } catch {}
   }
-  function armRotateIfGraficos(){
+
+  // Doble‑tap / dblclick para fullscreen + armar rotación si estás en gráficos (PATCH v15)
+  let _lastTap = 0; 
+  const TAP_WINDOW = 250; // ms
+  const isInteractive = (el) => !!(el && el.closest('button, a, select, input, textarea, label, [role="button"], [tabindex]'));
+
+  function armRotateIfGraficosNow() {
     const modo = (document.getElementById("movimientos")?.dataset?.modo) || "lista";
     if (modo === "graficos" || modo === "graficos2") {
       rotateReady = true;
       clearTimeout(rotateReadyTimer);
-      rotateReadyTimer = setTimeout(()=>{ rotateReady = false; }, 8000);
+      rotateReadyTimer = setTimeout(() => { rotateReady = false; }, 5000);
     }
   }
 
@@ -222,9 +228,7 @@ if (window.__APP_LOADED__) {
       if (document.documentElement) document.documentElement.style.touchAction = 'manipulation';
       if (document.body)           document.body.style.touchAction           = 'manipulation';
 
-      // Doble‑tap / dblclick para fullscreen + armar rotación si estás en gráficos
-      let _lastTap = 0; const TAP_WINDOW = 250; // ms
-      const isInteractive = (el) => !!(el && el.closest('button, a, select, input, textarea, label, [role="button"], [tabindex]'));
+      // Doble‑tap sobre zonas no interactivas
       window.addEventListener('touchstart', (ev) => {
         const t = Date.now();
         const target = ev.target;
@@ -232,22 +236,26 @@ if (window.__APP_LOADED__) {
         if (t - _lastTap <= TAP_WINDOW) {
           ev.preventDefault();
           toggleFullscreenUI();
-          armRotateIfGraficos();
+          armRotateIfGraficosNow();
           _lastTap = 0;
         } else {
           _lastTap = t;
         }
       }, { passive: false });
+
       window.addEventListener('dblclick', (ev) => {
         const target = ev.target;
         if (isInteractive(target)) return;
         ev.preventDefault();
         toggleFullscreenUI();
-        armRotateIfGraficos();
+        armRotateIfGraficosNow();
       }, { passive: false });
 
-      // Enlazar Guardar
       bindGuardarHandlers();
+
+      // Botón VOLVER de Import/Export (inferior)
+      const ieVolver = document.getElementById('ieVolver');
+      if (ieVolver) ieVolver.onclick = () => setModo('lista');
     });
   } else {
     bindGuardarHandlers();
@@ -288,7 +296,7 @@ if (window.__APP_LOADED__) {
     </svg>`; }
 
   // ==========================
-  // VISTAS Y TOGGLE CASA
+  // VISTAS / TOGGLE CASA
   // ==========================
   function setModo(modo){
     const m = document.getElementById("movimientos");
@@ -296,10 +304,10 @@ if (window.__APP_LOADED__) {
     if ((modo === 'graficos' || modo === 'graficos2') && from === 'lista') {
       // Capturamos anclajes de los dos botones existentes (left + center)
       captureFooterAnchors();
-      // También capturamos la referencia del balance (posición natural en Movimientos)
+      // Capturamos referencia del balance en su posición natural (Lista)
       captureBalanceRef();
     }
-    m.dataset.modo = modo; // "lista" | "graficos" | "graficos2"
+    m.dataset.modo = modo; // "lista" | "graficos" | "graficos2" | "importexport"
     resetPagina(); mostrar();
   }
   function toggleCasa(){
@@ -492,17 +500,25 @@ if (window.__APP_LOADED__) {
   }
 
   // ==========================
-  // MOSTRAR (LISTA / G1 / G2)
+  // MOSTRAR (LISTA / G1 / G2 / IMPORTEXPORT)
   // ==========================
   function mostrar() {
     const movDiv = document.getElementById("movimientos"); if (!movDiv || movDiv.dataset.permiso !== "OK") return;
-    const filtros = document.querySelector('.filtros-wrapper'); const footerB = document.querySelector('.footer-controles');
+    const filtros = document.querySelector('.filtros-wrapper'); 
+    const footerB = document.querySelector('.footer-controles');
+    const listaDiv = document.getElementById("lista");
+    const impPage  = document.getElementById("importExport");
+    const modo = movDiv.dataset.modo || "lista";
+
+    // Visibilidad UI (según fullscreenMode)
     if (filtros) filtros.style.display = fullscreenMode ? 'none' : '';
     if (footerB) footerB.style.display  = fullscreenMode ? 'none' : '';
 
+    // Filtros de datos
     const fsIds = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"];
     const fs = fsIds.map(id => { const el = document.getElementById(id); return el ? el.value : "TODOS"; });
 
+    // Filtrado + orden
     filtradosGlobal = (movimientos || [])
       .filter(m => {
         const d = (m.f || "").split("-");
@@ -515,20 +531,33 @@ if (window.__APP_LOADED__) {
       })
       .sort((a,b) => new Date(b.f) - new Date(a.f));
 
-    // Balance (texto/color)
+    // Balance — texto y color
     let t = 0; for (let i=0;i<filtradosGlobal.length;i++){ const m = filtradosGlobal[i]; if (!hideCasa || !isCasaCategory(m.c)) t += Number(m.imp)||0; }
-    const factor = (fs[0] === "TODOS") ? 12 : 1; const balanceEl = document.getElementById("balance");
+    const factor = (fs[0] === "TODOS") ? 12 : 1;
+    const balanceEl = document.getElementById("balance");
     if (balanceEl){
       balanceEl.textContent = t.toFixed(2) + " €";
       if (t < 0) balanceEl.style.color = "var(--danger)";
       else if (t <= (750 * factor)) balanceEl.style.color = "var(--warning)";
       else if (t <= (1400 * factor)) balanceEl.style.color = "var(--success)";
       else balanceEl.style.color = "var(--electric-blue)";
+
+      // 🔁 v16: Restaurar acción del BALANCE para abrir Import/Export
+      balanceEl.onclick = () => setModo('importexport');
     }
 
+    // ====== Import/Export Overlay ======
+    if (impPage) impPage.classList.add('hidden'); // por defecto oculto
+    if (modo === "importexport") {
+      if (impPage) impPage.classList.remove('hidden');
+      if (listaDiv) listaDiv.innerHTML = "";
+      // En overlay no forzamos footer/filters; el overlay lo cubre
+      return;
+    }
+
+    // Footer: botones
     const footerRow = document.querySelector('.footer-row');
     const { btnLeft, btnCenter, btnRight } = ensureRealButtons();
-    const modo = movDiv.dataset.modo || "lista";
 
     [btnLeft, btnCenter, btnRight].forEach(b=>{
       if (!b) return;
@@ -540,8 +569,6 @@ if (window.__APP_LOADED__) {
     layoutFooterReset(btnLeft, btnCenter, btnRight);
 
     const aplicarEstadoCasa = () => { if (btnCenter) btnCenter.classList.toggle("active", !!hideCasa); };
-
-    const listaDiv = document.getElementById("lista");
 
     if (modo === "graficos") {
       try { captureFooterAnchors(); } catch {}
@@ -593,7 +620,7 @@ if (window.__APP_LOADED__) {
         const loader = document.getElementById("loader"); if (loader) loader.style.display = "none";
       }
 
-      // Cada vez que estemos en Lista, refrescamos la referencia del balance por si cambió el layout/CSS
+      // Refrescar referencia del balance por si el CSS cambió
       captureBalanceRef();
     }
 
@@ -715,7 +742,7 @@ if (window.__APP_LOADED__) {
     const oldChart = lista.querySelector('.g2-wrap'); if (oldChart) oldChart.remove();
 
     const fsIds = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"];
-    theFs = fsIds.map(id => { const el = document.getElementById(id); return el ? el.value : "TODOS"; });
+    const fs = fsIds.map(id => { const el = document.getElementById(id); return el ? el.value : "TODOS"; });
 
     const hoy = new Date();
     const meses = [];
@@ -726,15 +753,16 @@ if (window.__APP_LOADED__) {
     }
 
     const filtraOtros = (m) => {
-      const cC = theFs[2] === "TODAS" || m.c === theFs[2];
-      const cS = theFs[3] === "TODAS" || m.s === theFs[3];
-      const cO = theFs[4] === "TODOS" || m.o === theFs[4];
+      const cC = fs[2] === "TODAS" || m.c === fs[2];
+      const cS = fs[3] === "TODAS" || m.s === fs[3];
+      const cO = fs[4] === "TODOS" || m.o === fs[4];
       return cC && cS && cO;
     };
     const base = (hideCasa ? movimientos.filter(mm => !isCasaCategory(mm.c)) : movimientos).filter(filtraOtros);
     const sumaMes = new Map();
     for (let mov of base) {
       const k = (mov.f || "").slice(0,7);
+      if (!meses.some(x => x.key === k)) continue;
       sumaMes.set(k, (sumaMes.get(k) || 0) + (Number(mov.imp) || 0));
     }
 
@@ -1027,7 +1055,6 @@ if (window.__APP_LOADED__) {
     let n = el.dataset.nuevoValor || "";
     el.dataset.nuevoValor = "";
     if (!n) { el.value = ""; return; }
-
     const pretty = mostrarBonito(n.trim());
     const keyNew = canonicalizeLabel(pretty);
 
@@ -1059,7 +1086,6 @@ if (window.__APP_LOADED__) {
   const borrarElemento = (tipo) => {
     const select = document.getElementById(tipo);
     const val = select && select.value; if (!val) return;
-
     if (tipo === 'categoria') {
       const idx = catExtra.indexOf(val);
       if (idx >= 0) {
@@ -1190,7 +1216,7 @@ if (window.__APP_LOADED__) {
   }, { passive: true });
 
   // ==========================
-  // CSV / BACKUPS / SW / DROPBOX / AUTOSYNC — Íntegro como tenías
+  // CSV / BACKUPS / SW / DROPBOX / AUTOSYNC — Íntegro
   // ==========================
   const exportarCSV = () => {
     if (!movimientos || movimientos.length === 0) { alert("No hay datos para exportar."); return; }
@@ -1331,7 +1357,7 @@ if (window.__APP_LOADED__) {
   };
 
   // ==========================
-  // BACKUPS (rotativo) + INDICADOR + SW + DROPBOX + AUTOSYNC (sin cambios funcionales)
+  // BACKUPS / INDICADOR / SW / DROPBOX / AUTOSYNC
   // ==========================
   async function createAndStoreLocalBackup(){
     const enc = await encryptBackup(buildBackupObject());
