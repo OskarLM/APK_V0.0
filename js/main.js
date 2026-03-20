@@ -1,4 +1,4 @@
-// === main.js v20 — Indicador en topbar + Doble‑tap ON/OFF (no bloquea selects) + G2 real + CASA centrada + Balance consistente + Import/Export desde Balance ===
+// === main.js v21 — Indicador en topbar + Doble‑tap ON/OFF fiable (sin romper selects) + Popups “+ Añadir nuevo…” restaurados + G2 real + CASA centrada + Balance consistente ===
 if (window.__APP_LOADED__) {
   // Evitar doble carga
 } else {
@@ -193,7 +193,11 @@ if (window.__APP_LOADED__) {
       ind.title = 'Volteador (doble‑tap en gráficos: ON/OFF)';
       Object.assign(ind.style, {
         display:'inline-block', width:'10px', height:'10px', borderRadius:'50%',
-        marginLeft:'8px', verticalAlign:'middle', background:'#999'
+        marginLeft:'8px', verticalAlign:'middle', background:'#999', cursor:'pointer'
+      });
+      ind.addEventListener('click', () => {
+        if (!isInGraficosMode()) { alert('Abre Gráficos y usa doble‑tap o el indicador para ON/OFF.'); return; }
+        armRotateIfGraficosNow();
       });
       top.appendChild(ind);
     }
@@ -234,72 +238,65 @@ if (window.__APP_LOADED__) {
     if (modo !== "graficos" && modo !== "graficos2") return;
 
     if (rotateReady) {
-      // Estaba ON → lo apagamos
       rotateReady = false;
       try { sessionStorage.removeItem('rotate_ready'); } catch {}
     } else {
-      // Estaba OFF → lo encendemos
       rotateReady = true;
       try { sessionStorage.setItem('rotate_ready', '1'); } catch {}
     }
     updateRotateIndicator();
   }
-
-  // Utilidad: ¿estamos en gráficos?
   function isInGraficosMode(){
     const m = document.getElementById("movimientos");
     const modo = m?.dataset?.modo || "lista";
     return (modo === 'graficos' || modo === 'graficos2');
   }
 
-  // Doble‑tap robusto que NO bloquea selects/cambios
-  let _lastTapTime = 0; 
-  const TAP_WINDOW = 300; // ms
+  // === Doble‑tap SOLO en área de gráficos (#lista), sin interferir con selects ===
+  let __lastTapTs = 0;
+  const DOUBLE_TAP_MS = 280;
 
-  // Elementos donde NO debe actuar el doble‑tap (para no romper selects ni botones)
   function isInteractiveForDoubleTap(el){
     if (!el) return false;
-    // Controles de UI
     if (el.closest('.footer-controles')) return true;
     if (el.closest('.footer-row')) return true;
     if (el.closest('#form')) return true;
     if (el.closest('.filtros-wrapper')) return true;
     if (el.closest('button, a, select, option, input, textarea, label, [role="button"]')) return true;
-    // Zonas de gráficos SÍ deben permitir doble‑tap
-    // (no marcamos nada como interactivo aquí)
     return false;
   }
+  function onGraphPointerUp(ev){
+    if (!isInGraficosMode()) return;
+    if (isInteractiveForDoubleTap(ev.target)) return;
 
-  // Usamos touchend para no interferir con los "change" de <select>
-  function onTouchEndForDoubleTap(ev){
-    const target = ev.target;
-    if (!isInGraficosMode()) return;           // Solo en gráficos
-    if (isInteractiveForDoubleTap(target)) return; // No en controles
+    const now = ev.timeStamp || Date.now();
+    const delta = now - __lastTapTs;
 
-    const now = Date.now();
-    const delta = now - _lastTapTime;
-
-    if (delta <= TAP_WINDOW) {
-      // Doble‑tap detectado: prevenimos el gesto por si hay handlers debajo (barras/columnas)
+    if (delta <= DOUBLE_TAP_MS) {
       ev.preventDefault();
       ev.stopPropagation();
-
       toggleFullscreenUI();
       armRotateIfGraficosNow();
-      _lastTapTime = 0;
+      __lastTapTs = 0;
     } else {
-      _lastTapTime = now;
+      __lastTapTs = now;
     }
   }
-
-  // Doble‑click para escritorio
-  function onDblClickForToggle(ev){
-    const target = ev.target;
+  function onGraphDblClick(ev){
     if (!isInGraficosMode()) return;
-    if (isInteractiveForDoubleTap(target)) return;
+    if (isInteractiveForDoubleTap(ev.target)) return;
     ev.preventDefault();
     toggleFullscreenUI();
     armRotateIfGraficosNow();
+  }
+  function bindGraphDoubleTapArea(){
+    const area = document.getElementById('lista');
+    if (!area) return;
+    if (!area.__dblBind) {
+      area.addEventListener('pointerup', onGraphPointerUp, { passive:false });
+      area.addEventListener('dblclick',  onGraphDblClick,  { passive:false });
+      area.__dblBind = true;
+    }
   }
 
   if (document.readyState === 'loading') {
@@ -307,19 +304,18 @@ if (window.__APP_LOADED__) {
       ensureDefaultPinHash().catch(console.error);
       updateDots();
 
-      // Restaurar fullscreen/rotate y preparar indicador
+      // Restaurar fullscreen/rotate e indicador
       try { const prevFS = sessionStorage.getItem('ui_fullscreen'); if (prevFS === '1') { fullscreenMode = true; toggleFullscreenUI(); } } catch {}
       try { if (sessionStorage.getItem('rotate_ready') === '1') rotateReady = true; } catch {}
       ensureRotateIndicator();
       updateRotateIndicator();
 
-      // Mejora de interacción
+      // Evitar zoom triple‑tap y mejorar latencia
       if (document.documentElement) document.documentElement.style.touchAction = 'manipulation';
       if (document.body)           document.body.style.touchAction           = 'manipulation';
 
-      // Doble‑tap y doble‑click
-      window.addEventListener('touchend', onTouchEndForDoubleTap, { passive: false });
-      window.addEventListener('dblclick', onDblClickForToggle, { passive: false });
+      // Doble‑tap: SOLO en #lista (área de gráficos)
+      bindGraphDoubleTapArea();
 
       bindGuardarHandlers();
 
@@ -331,6 +327,7 @@ if (window.__APP_LOADED__) {
     bindGuardarHandlers();
     ensureRotateIndicator();
     updateRotateIndicator();
+    bindGraphDoubleTapArea();
   }
 
   // === Volteador de pantalla — redibuja en ambos sentidos sin apagar rotateReady ===
@@ -342,24 +339,22 @@ if (window.__APP_LOADED__) {
       mostrar();
     }
   }
-
-  // API moderna (Android/Chrome/PWA)
+  // API moderna / compat / fallback robusto
   if (screen.orientation && screen.orientation.addEventListener) {
     screen.orientation.addEventListener("change", handleRotationRedraw);
   }
-  // Compatibilidad
   window.addEventListener("orientationchange", handleRotationRedraw);
-  // Fallback universal (resize con detección real portrait<->landscape)
-  let _lastIsLandscape = null;
-  window.addEventListener("resize", () => {
+
+  const redrawOnResizeDebounced = debounce(() => {
     if (!rotateReady) return;
-    const w = window.innerWidth, h = window.innerHeight;
-    const isLandscape = w > h;
-    if (_lastIsLandscape === null) { _lastIsLandscape = isLandscape; return; }
-    if (isLandscape !== _lastIsLandscape) {
-      _lastIsLandscape = isLandscape;
-      handleRotationRedraw();
+    const modo = (document.getElementById("movimientos")?.dataset?.modo) || "lista";
+    if (modo === "graficos" || modo === "graficos2") {
+      try { captureFooterAnchors(); } catch {}
+      mostrar();
     }
+  }, 120);
+  window.addEventListener('resize', () => {
+    if (rotateReady) redrawOnResizeDebounced();
   });
 
   // ==========================
@@ -393,7 +388,7 @@ if (window.__APP_LOADED__) {
     const m = document.getElementById("movimientos");
     const from = m.dataset.modo || 'lista';
     if ((modo === 'graficos' || modo === 'graficos2') && from === 'lista') {
-      // Captura anclajes (left + center) y referencia de balance
+      // Captura anclajes y referencia de balance
       captureFooterAnchors();
       captureBalanceRef();
     }
@@ -554,7 +549,6 @@ if (window.__APP_LOADED__) {
       if (!footerRow || !balanceEl) return;
       const contRect = footerRow.getBoundingClientRect();
       const balRect  = balanceEl.getBoundingClientRect();
-      // Distancia desde el borde derecho del footer al borde derecho del balance
       balanceRightRef = Math.max(0, Math.round(contRect.right - balRect.right));
     } catch { /* noop */ }
   }
@@ -566,7 +560,6 @@ if (window.__APP_LOADED__) {
 
     if (getComputedStyle(footerRow).position === 'static') footerRow.style.position = 'relative';
 
-    // Si no tenemos referencia aún, usa padding-right del footer como aproximación natural
     let rightOffset = balanceRightRef;
     if (rightOffset == null) {
       const footer = document.querySelector('.footer-controles');
@@ -587,6 +580,43 @@ if (window.__APP_LOADED__) {
     balanceEl.style.right     = '';
     balanceEl.style.top       = '';
     balanceEl.style.transform = '';
+  }
+
+  // ==========================
+  // POPUPS “+ Añadir nuevo…” — ENLACE FIABLE A SELECTS
+  // ==========================
+  function bindNuevoHandlers() {
+    const selCat = document.getElementById('categoria');
+    const selSub = document.getElementById('subcategoria');
+
+    if (selCat && !selCat.__nuevoBound) {
+      selCat.addEventListener('change', (e) => {
+        if (e.target.value === '+') {
+          const val = (prompt('Nueva CATEGORÍA:') || '').trim();
+          if (val) {
+            e.target.dataset.nuevoValor = val;
+            manejarNuevo(e.target, 'categoria');
+          } else {
+            e.target.value = '';
+          }
+        }
+      });
+      selCat.__nuevoBound = true;
+    }
+    if (selSub && !selSub.__nuevoBound) {
+      selSub.addEventListener('change', (e) => {
+        if (e.target.value === '+') {
+          const val = (prompt('Nueva SUBCATEGORÍA:') || '').trim();
+          if (val) {
+            e.target.dataset.nuevoValor = val;
+            manejarNuevo(e.target, 'subcategoria');
+          } else {
+            e.target.value = '';
+          }
+        }
+      });
+      selSub.__nuevoBound = true;
+    }
   }
 
   // ==========================
@@ -639,6 +669,7 @@ if (window.__APP_LOADED__) {
     if (modo === "importexport") {
       if (impPage) impPage.classList.remove('hidden');
       if (listaDiv) listaDiv.innerHTML = "";
+      ensureRotateIndicator(); updateRotateIndicator();
       return;
     }
 
@@ -707,16 +738,17 @@ if (window.__APP_LOADED__) {
         const loader = document.getElementById("loader"); if (loader) loader.style.display = "none";
       }
 
-      // Refrescar referencia del balance por si el CSS cambió
       captureBalanceRef();
     }
 
-    ensureRotateIndicator();
-    updateRotateIndicator();
+    ensureRotateIndicator(); updateRotateIndicator();
     ensureBackupIndicator(); updateBackupIndicator();
+
+    // MUY IMPORTANTE: el área de gráficos puede re‑crearse -> reenganchar doble‑tap
+    bindGraphDoubleTapArea();
   }
 
-  // Reajustes al cambiar tamaño: re‑aplica layouts en gráficos (y balance unificado)
+  // Reajustes al cambiar tamaño: layout + balance unificado
   window.addEventListener('resize', debounce(function(){
     const movDiv = document.getElementById("movimientos");
     if (!movDiv) return; const modo = movDiv.dataset.modo || "lista";
@@ -851,7 +883,6 @@ if (window.__APP_LOADED__) {
     const sumaMes = new Map();
     for (let mov of base) {
       const k = (mov.f || "").slice(0,7);
-      // si no existe en los 13 meses, igualmente sumamos para consistencia
       sumaMes.set(k, (sumaMes.get(k) || 0) + (Number(mov.imp) || 0));
     }
 
@@ -943,6 +974,9 @@ if (window.__APP_LOADED__) {
       llenar("categoria", catBase, catExtra, preCat, { origenActual: origenValor });
       llenar("subcategoria", subMaestra, [], preSub, { origenActual: origenValor });
     }
+
+    // Reenganchar popups "+ Añadir nuevo…"
+    setTimeout(bindNuevoHandlers, 0);
   }
 
   function lanzarPopupNomina({ preCat = "", preSub = "" } = {}) {
@@ -987,30 +1021,48 @@ if (window.__APP_LOADED__) {
     };
   }
 
-  const llenar = (id, base, extra, pre = "", opts = {}) => {
-    const s = document.getElementById(id);
-    const origenActual = opts.origenActual || "";
-    if (!s) return;
+  // (PATCH v21) — manejarNuevo robusto con fallback de prompt si dataset no llega
+  const manejarNuevo = (el, tipo) => {
+    if (el.value !== "+") return;
 
-    s.innerHTML = `<option value="" disabled ${pre === "" ? 'selected' : ''}>Seleccionar...</option>`;
-    let values = [...new Set([...base, ...extra])];
-
-    if (id === "categoria") {
-      const ocultarNominaCats = origenActual !== "Nómina";
-      if (ocultarNominaCats) values = values.filter(v => !NOMINA_CATS.includes(v));
-    }
-    if (id === "subcategoria") {
-      const ocultarMeses = origenActual !== "Nómina";
-      if (ocultarMeses) values = values.filter(v => !NOMINA_SUBS.includes(v));
+    let n = el.dataset.nuevoValor || "";
+    if (!n) {
+      const label = (tipo === 'categoria') ? 'CATEGORÍA' : 'SUBCATEGORÍA';
+      n = (prompt(`Nueva ${label}:`) || '').trim();
     }
 
-    values.sort((a,b)=>a.localeCompare(b,'es')).forEach(v=>{
-      s.innerHTML += `<option value="${v}" ${v === pre ? 'selected' : ''}>${v}</option>`;
-    });
+    el.dataset.nuevoValor = ""; // limpiar
+    if (!n) { el.value = ""; return; }
 
-    if (pre && !values.includes(pre)) s.innerHTML += `<option value="${pre}" selected hidden>${pre}</option>`;
-    if (id !== "origen") s.innerHTML += `<option value="+">+ Añadir nuevo...</option>`;
-    if (pre) s.value = pre;
+    const pretty = mostrarBonito(n.trim());
+    const keyNew = canonicalizeLabel(pretty);
+
+    if (tipo === "categoria") {
+      const catIdx = buildCanonIndex(catBase, catExtra);
+      if (NOMINA_CATS.some(x => canonicalizeLabel(x) === keyNew)) {
+        alert("No puedes crear manualmente 'Oskar' ni 'Josune'. Selecciona 'Nómina'.");
+        el.value = ""; return;
+      }
+      if (!catIdx.has(keyNew)) {
+        catExtra.push(pretty);
+        localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
+        scheduleSync('listas');
+      }
+      const origenActual = (document.getElementById("origen")||{}).value || "";
+      llenar("categoria", catBase, catExtra, pretty, { origenActual });
+    } else {
+      const subIdx = buildCanonIndex(subMaestra, []);
+      if (!subIdx.has(keyNew)) {
+        subMaestra.push(pretty);
+        localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
+        scheduleSync('listas');
+      }
+      const origenActual = (document.getElementById("origen")||{}).value || "";
+      llenar("subcategoria", subMaestra, [], pretty, { origenActual });
+    }
+
+    // Reenganchar popups tras repintar selects
+    setTimeout(bindNuevoHandlers, 0);
   };
 
   const abrirFormulario = (id = null) => {
@@ -1038,6 +1090,9 @@ if (window.__APP_LOADED__) {
       btnD.classList.add("hidden");
     }
 
+    // Enlazar selects "+ Añadir nuevo…"
+    bindNuevoHandlers();
+
     const selOrigen = document.getElementById("origen");
     selOrigen.onchange = () => onOrigenChange(selOrigen.value);
 
@@ -1060,7 +1115,7 @@ if (window.__APP_LOADED__) {
   };
 
   // ==========================
-  // GUARDAR
+  // GUARDAR — robusto (números EU + value de selects)
   // ==========================
   const guardar = () => {
     const get = (id) => (document.getElementById(id)?.value ?? "").trim();
@@ -1137,39 +1192,6 @@ if (window.__APP_LOADED__) {
     document.getElementById("form").classList.add("hidden");
     document.getElementById("movimientos").classList.remove("hidden");
     actualizarListas(); resetPagina(); mostrar();
-  };
-
-  const manejarNuevo = (el, tipo) => {
-    if (el.value !== "+") return;
-    let n = el.dataset.nuevoValor || "";
-    el.dataset.nuevoValor = "";
-    if (!n) { el.value = ""; return; }
-    const pretty = mostrarBonito(n.trim());
-    const keyNew = canonicalizeLabel(pretty);
-
-    if (tipo === "categoria") {
-      const catIdx = buildCanonIndex(catBase, catExtra);
-      if (NOMINA_CATS.some(x => canonicalizeLabel(x) === keyNew)) {
-        alert("No puedes crear manualmente 'Oskar' ni 'Josune'. Selecciona 'Nómina'.");
-        el.value = ""; return;
-      }
-      if (!catIdx.has(keyNew)) {
-        catExtra.push(pretty);
-        localStorage.setItem('categoriaExtra', JSON.stringify(catExtra));
-        scheduleSync('listas');
-      }
-      const origenActual = (document.getElementById("origen")||{}).value || "";
-      llenar("categoria", catBase, catExtra, pretty, { origenActual });
-    } else {
-      const subIdx = buildCanonIndex(subMaestra, []);
-      if (!subIdx.has(keyNew)) {
-        subMaestra.push(pretty);
-        localStorage.setItem('subMaestra_v2', JSON.stringify(subMaestra));
-        scheduleSync('listas');
-      }
-      const origenActual = (document.getElementById("origen")||{}).value || "";
-      llenar("subcategoria", subMaestra, [], pretty, { origenActual });
-    }
   };
 
   const borrarElemento = (tipo) => {
@@ -1390,8 +1412,8 @@ if (window.__APP_LOADED__) {
 
         const catIndexCanon = buildCanonIndex([...catBase, ...catExtra, ...NOMINA_CATS], []);
         const subIndexCanon = buildCanonIndex([...subMaestra, ...NOMINA_SUBS], []);
-        const nuevos = [];
 
+        const nuevos = [];
         for (let i = 1; i < lines.length; i++) {
           const arr = parseLine(lines[i]);
           if (arr.every(v => (v||'').trim()==='')) continue;
@@ -1418,12 +1440,12 @@ if (window.__APP_LOADED__) {
           nuevos.push(mov);
         }
 
+        // Añadir a catExtra/subMaestra si no existían (canónico)
         const addIfNewCanon = (list, storeKey, value) => {
           const k = canonicalizeLabel(value);
           const exists = list.some(v => canonicalizeLabel(v) === k);
           if (!exists) { list.push(value); localStorage.setItem(storeKey, JSON.stringify(list)); }
         };
-
         nuevos.forEach(m=>{
           if (![...catBase, ...catExtra, ...NOMINA_CATS].some(v => canonicalizeLabel(v) === canonicalizeLabel(m.c)))
             addIfNewCanon(catExtra, 'categoriaExtra', m.c);
@@ -1707,7 +1729,6 @@ if (window.__APP_LOADED__) {
       updateBackupIndicator?.();
       actualizarListas?.(); resetPagina?.(); mostrar?.();
       if (!silent) alert('Datos cargados desde Dropbox.');
-
     } catch (e) { /* log */ }
   }
   window.addEventListener('online', () => scheduleSync('online'));
