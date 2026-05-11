@@ -529,175 +529,177 @@ if (window.__APP_LOADED__) {
     balanceEl.style.top       = '';
     balanceEl.style.transform = '';
   }
+// ==========================
+// MOSTRAR — FUNCIONES AUXILIARES
+// ==========================
+
+// UI fullscreen
+function aplicarVisibilidadUI() {
+  const filtros = document.querySelector('.filtros-wrapper');
+  const footer  = document.querySelector('.footer-controles');
+  if (filtros) filtros.style.display = fullscreenMode ? 'none' : '';
+  if (footer)  footer.style.display  = fullscreenMode ? 'none' : '';
+}
+
+// Filtrado + orden
+function recalcularFiltrados() {
+  const fsIds = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"];
+  const fs = fsIds.map(id => {
+    const el = document.getElementById(id);
+    return el ? el.value : "TODOS";
+  });
+
+  filtradosGlobal = (movimientos || [])
+    .filter(m => {
+      const d = (m.f || "").split("-");
+      const cM = fs[0] === "TODOS" || (parseInt(d[1]) - 1).toString() === fs[0];
+      const cA = fs[1] === "TODOS" || d[0] === fs[1];
+      const cC = fs[2] === "TODAS" || m.c === fs[2];
+      const cS = fs[3] === "TODAS" || m.s === fs[3];
+      const cO = fs[4] === "TODOS" || m.o === fs[4];
+      return cM && cA && cC && cS && cO;
+    })
+    .sort((a, b) => new Date(b.f) - new Date(a.f));
+}
+
+// Balance
+function renderBalance() {
+  let total = 0;
+  for (const m of filtradosGlobal) {
+    if (!hideCasa || !isCasaCategory(m.c)) {
+      total += Number(m.imp) || 0;
+    }
+  }
+
+  const mes = document.getElementById("filtroMes")?.value;
+  const factor = (mes === "TODOS") ? 12 : 1;
+
+  const balanceEl = document.getElementById("balance");
+  if (!balanceEl) return;
+
+  balanceEl.textContent = total.toFixed(2) + " €";
+  if (total < 0) balanceEl.style.color = "var(--danger)";
+  else if (total <= 750 * factor) balanceEl.style.color = "var(--warning)";
+  else if (total <= 1400 * factor) balanceEl.style.color = "var(--success)";
+  else balanceEl.style.color = "var(--electric-blue)";
+
+  balanceEl.onclick = () => setModo("importexport");
+}
+
+// Import / Export
+function renderImportExport() {
+  const listaDiv = document.getElementById("lista");
+  const impPage  = document.getElementById("importExport");
+
+  if (impPage) impPage.classList.remove("hidden");
+  if (listaDiv) listaDiv.innerHTML = "";
+}
+
+// Footer base
+function renderFooterBase() {
+  const { btnLeft, btnCenter, btnRight } = ensureRealButtons();
+
+  [btnLeft, btnCenter, btnRight].forEach(b => {
+    if (!b) return;
+    b.onclick = null;
+    b.classList.remove("plus-like","btn-house-anim","active");
+    b.style.position = "";
+    b.style.left = "";
+    b.style.top = "";
+    b.style.transform = "";
+    b.style.opacity = "1";
+    b.style.display = "";
+    b.style.pointerEvents = "";
+  });
+
+  layoutFooterReset(btnLeft, btnCenter, btnRight);
+}
+
+// Lista
+function renderLista() {
+  const listaDiv = document.getElementById("lista");
+  if (!listaDiv) return;
+
+  const rows = filtradosGlobal
+    .slice(0, registrosVisibles)
+    .map(m => `
+      <div class="card"
+           onclick="abrirFormulario('${m.id}')"
+           style="border-left-color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">
+
+        <div class="meta">
+          ${esc(m.f.split("-").reverse().join("/"))} • ${esc(m.o)}
+        </div>
+
+        <b>${esc(m.c)} - ${esc(m.s)}</b>
+
+        ${m.d ? `<div style="font-size:12px;opacity:.8">${esc(m.d)}</div>` : ""}
+
+        <div class="monto"
+             style="color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">
+          ${(Number(m.imp) || 0).toFixed(2)} €
+        </div>
+      </div>
+    `)
+    .join("");
+
+  listaDiv.innerHTML = rows;
+}
+
+// Gráfico 1
+function renderGrafico1() {
+  const listaDiv = document.getElementById("lista");
+  if (!listaDiv) return;
+  listaDiv.innerHTML = "";
+
+  const mes = document.getElementById("filtroMes")?.value;
+  renderizarBarrasGraficos(mes === "TODOS" ? 12 : 1);
+}
+
+// Gráfico 2
+function renderGrafico2() {
+  const listaDiv = document.getElementById("lista");
+  if (!listaDiv) return;
+  listaDiv.innerHTML = "";
+  renderizarGraficos2();
+}
 
   // ==========================
   // MOSTRAR (LISTA / G1 / G2 / IMPORTEXPORT)
   // ==========================
-  function mostrar() {
-    const movDiv = document.getElementById("movimientos"); if (!movDiv || movDiv.dataset.permiso !== "OK") return;
-    const filtros = document.querySelector('.filtros-wrapper'); 
-    const footerB = document.querySelector('.footer-controles');
-    const listaDiv = document.getElementById("lista");
-    const impPage  = document.getElementById("importExport");
-    const modo = movDiv.dataset.modo || "lista";
+function mostrar() {
+  const movDiv = document.getElementById("movimientos");
+  if (!movDiv || movDiv.dataset.permiso !== "OK") return;
 
-    // Visibilidad UI (según fullscreenMode)
-    if (filtros) filtros.style.display = fullscreenMode ? 'none' : '';
-    if (footerB) footerB.style.display  = fullscreenMode ? 'none' : '';
+  const modo = movDiv.dataset.modo || "lista";
 
-    // Filtros de datos
-    const fsIds = ["filtroMes","filtroAño","filtroCat","filtroSub","filtroOri"];
-    const fs = fsIds.map(id => { const el = document.getElementById(id); return el ? el.value : "TODOS"; });
+  aplicarVisibilidadUI();
+  recalcularFiltrados();
+  renderBalance();
 
-    // Filtrado + orden
-    filtradosGlobal = (movimientos || [])
-      .filter(m => {
-        const d = (m.f || "").split("-");
-        const cM = fs[0] === "TODOS" || (parseInt(d[1]) - 1).toString() === fs[0];
-        const cA = fs[1] === "TODOS" || d[0] === fs[1];
-        const cC = fs[2] === "TODAS" || m.c === fs[2];
-        const cS = fs[3] === "TODAS" || m.s === fs[3];
-        const cO = fs[4] === "TODOS" || m.o === fs[4];
-        return cM && cA && cC && cS && cO;
-      })
-      .sort((a,b) => new Date(b.f) - new Date(a.f));
-
-    // Balance — texto, color y acción Import/Export
-    let t = 0; for (let i=0;i<filtradosGlobal.length;i++){ const m = filtradosGlobal[i]; if (!hideCasa || !isCasaCategory(m.c)) t += Number(m.imp)||0; }
-    const factor = (fs[0] === "TODOS") ? 12 : 1;
-    const balanceEl = document.getElementById("balance");
-    if (balanceEl){
-      balanceEl.textContent = t.toFixed(2) + " €";
-      if (t < 0) balanceEl.style.color = "var(--danger)";
-      else if (t <= (750 * factor)) balanceEl.style.color = "var(--warning)";
-      else if (t <= (1400 * factor)) balanceEl.style.color = "var(--success)";
-      else balanceEl.style.color = "var(--electric-blue)";
-      balanceEl.onclick = () => setModo('importexport');
-    }
-
-    // ====== Import/Export Overlay ======
-    if (impPage) impPage.classList.add('hidden'); // por defecto oculto
-    if (modo === "importexport") {
-      if (impPage) impPage.classList.remove('hidden');
-      if (listaDiv) listaDiv.innerHTML = "";
-      return;
-    }
-
-    // Footer: botones
-    const footerRow = document.querySelector('.footer-row');
-    const { btnLeft, btnCenter, btnRight } = ensureRealButtons();
-
-    [btnLeft, btnCenter, btnRight].forEach(b=>{
-      if (!b) return;
-      b.onclick = null; b.ondblclick = null;
-      b.classList.remove("plus-like","btn-house-anim","active");
-      b.style.opacity = "1"; b.style.display = ""; b.style.pointerEvents="";
-      b.style.position=""; b.style.left=""; b.style.top=""; b.style.transform="";
-    });
-    layoutFooterReset(btnLeft, btnCenter, btnRight);
-
-    const aplicarEstadoCasa = () => { if (btnCenter) btnCenter.classList.toggle("active", !!hideCasa); };
-
-    if (modo === "graficos") {
-      try { captureFooterAnchors(); } catch {}
-
-      if (btnLeft){ btnLeft.innerHTML = iconBack(); btnLeft.onclick = () => setModo("lista"); }
-      if (btnCenter){ btnCenter.innerHTML = iconCasa(); btnCenter.classList.add("btn-house-anim"); btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
-      if (btnRight){ btnRight.innerHTML = iconGraph2(); btnRight.onclick = () => setModo("graficos2"); }
-
-      layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
-      layoutBalanceFixedUnified();
-
-      if (listaDiv) {
-        listaDiv.innerHTML = "";
-        renderizarBarrasGraficos((fs[0] === "TODOS") ? 12 : 1);
-      }
-    } else if (modo === "graficos2") {
-      try { captureFooterAnchors(); } catch {}
-
-      if (btnLeft){ btnLeft.innerHTML = iconBack(); btnLeft.onclick = () => setModo("graficos"); }
-      if (btnCenter){ btnCenter.innerHTML = iconCasa(); btnCenter.classList.add("btn-house-anim"); btnCenter.onclick = () => { toggleCasa(); aplicarEstadoCasa(); }; aplicarEstadoCasa(); }
-      if (btnRight){ btnRight.style.display = 'none'; btnRight.style.pointerEvents = 'none'; btnRight.style.opacity = '0'; }
-
-      layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
-      layoutBalanceFixedUnified();
-
-      if (listaDiv) {
-        listaDiv.innerHTML = "";
-        renderizarGraficos2();
-      }
-} else {
-  // LISTA
-  if (btnLeft){
-    btnLeft.innerHTML = iconBars();
-    btnLeft.classList.add("plus-like");
-    btnLeft.onclick = () => {
-      captureBalanceRef();
-      setModo("graficos");
-    };
+  if (modo === "importexport") {
+    renderImportExport();
+    return;
   }
 
-  if (btnCenter){
-    btnCenter.innerHTML = "+";
-    btnCenter.onclick = () => abrirFormulario();
+    renderFooterBase();
+
+  switch (modo) {
+    case "graficos":
+      renderGrafico1();
+      break;
+    case "graficos2":
+      renderGrafico2();
+      break;
+    default:
+      renderLista();
   }
 
-  layoutFooterReset(btnLeft, btnCenter, btnRight);
-  layoutBalanceResetUnified();
-
-  if (listaDiv) {
-    const rows = filtradosGlobal
-      .slice(0, registrosVisibles)
-      .map(m => `
-        <div class="card"
-          onclick="abrirFormulario('${m.id}')"
-          style="border-left-color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">
-
-          <div class="meta">
-            ${esc(m.f.split("-").reverse().join("/"))} • ${esc(m.o)}
-          </div>
-
-          <b>${esc(m.c)} - ${esc(m.s)}</b>
-
-          ${
-            m.d
-              ? `<div style="font-size:12px;opacity:.8">${esc(m.d)}</div>`
-              : ""
-          }
-
-          <div class="monto"
-               style="color:${m.imp >= 0 ? 'var(--success)' : 'var(--danger)'}">
-            ${(Number(m.imp) || 0).toFixed(2)} €
-          </div>
-        </div>
-      `)
-      .join("");
-
-    listaDiv.innerHTML = rows;
-
-    const loader = document.getElementById("loader");
-    if (loader) loader.style.display = "none";
-
-
-  }
-
-  // Refrescar referencia del balance por si el CSS cambió
   captureBalanceRef();
-  } // fin else LISTA
-  } // fin mostrar()
+  
+}
 
-  // Reajustes al cambiar tamaño: re‑aplica layouts en gráficos (y balance unificado)
-  window.addEventListener('resize', debounce(function(){
-    const movDiv = document.getElementById("movimientos");
-    if (!movDiv) return; const modo = movDiv.dataset.modo || "lista";
-    if (modo !== "graficos" && modo !== "graficos2") return;
-    const footerRow = document.querySelector(".footer-row");
-    const { btnLeft, btnCenter, btnRight } = ensureRealButtons();
-    if (modo === "graficos") layoutFooterGrafico1(footerRow, btnLeft, btnCenter, btnRight);
-    else layoutFooterGrafico2(footerRow, btnLeft, btnCenter, btnRight);
-    layoutBalanceFixedUnified();
-  }, 150));
-
+  
   // ==========================
   // GRÁFICOS 1 (barras) + DRILL
   // ==========================
