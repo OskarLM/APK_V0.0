@@ -229,47 +229,49 @@ if (window.__APP_LOADED__) {
   const TAP_WINDOW = 250; // ms
   const isInteractive = (el) => !!(el && el.closest('button, a, select, input, textarea, label, [role="button"], [tabindex]'));
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      ensureDefaultPinHash().catch(console.error);
-      updateDots();
-      if (document.documentElement) document.documentElement.style.touchAction = 'manipulation';
-      if (document.body)           document.body.style.touchAction           = 'manipulation';
+  function initDOM() {
+    ensureDefaultPinHash().catch(console.error);
+    updateDots();
+    if (document.documentElement) document.documentElement.style.touchAction = 'manipulation';
+    if (document.body)           document.body.style.touchAction           = 'manipulation';
 
-      try { const prevFS = sessionStorage.getItem('ui_fullscreen'); if (prevFS === '1') { fullscreenMode = true; toggleFullscreenUI(); } } catch {}
-      // Restaurar estado armado del volteador si estaba guardado
-      try { if (sessionStorage.getItem('rotate_ready') === '1') rotateReady = true; } catch {}
+    try { const prevFS = sessionStorage.getItem('ui_fullscreen'); if (prevFS === '1') { fullscreenMode = true; toggleFullscreenUI(); } } catch {}
+    // Restaurar estado armado del volteador si estaba guardado
+    try { if (sessionStorage.getItem('rotate_ready') === '1') rotateReady = true; } catch {}
 
-      window.addEventListener('touchstart', (ev) => {
-        const t = Date.now();
-        const target = ev.target;
-        if (isInteractive(target)) return;
-        if (t - _lastTap <= TAP_WINDOW) {
-          ev.preventDefault();
-          toggleFullscreenUI();
-          armRotateIfGraficosNow(); // ON/OFF
-          _lastTap = 0;
-        } else {
-          _lastTap = t;
-        }
-      }, { passive: false });
-
-      window.addEventListener('dblclick', (ev) => {
-        const target = ev.target;
-        if (isInteractive(target)) return;
+    window.addEventListener('touchstart', (ev) => {
+      const t = Date.now();
+      const target = ev.target;
+      if (isInteractive(target)) return;
+      if (t - _lastTap <= TAP_WINDOW) {
         ev.preventDefault();
         toggleFullscreenUI();
         armRotateIfGraficosNow(); // ON/OFF
-      }, { passive: false });
+        _lastTap = 0;
+      } else {
+        _lastTap = t;
+      }
+    }, { passive: false });
 
-      bindGuardarHandlers();
+    window.addEventListener('dblclick', (ev) => {
+      const target = ev.target;
+      if (isInteractive(target)) return;
+      ev.preventDefault();
+      toggleFullscreenUI();
+      armRotateIfGraficosNow(); // ON/OFF
+    }, { passive: false });
 
-      // Botón VOLVER de Import/Export (si existe)
-      const ieVolver = document.getElementById('ieVolver');
-      if (ieVolver) ieVolver.onclick = () => setModo('lista');
-    });
-  } else {
     bindGuardarHandlers();
+
+    // Botón VOLVER de Import/Export (si existe)
+    const ieVolver = document.getElementById('ieVolver');
+    if (ieVolver) ieVolver.onclick = () => setModo('lista');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDOM);
+  } else {
+    initDOM();
   }
 
   // === Volteador de pantalla REAL — redibuja en ambos sentidos y NO apaga rotateReady ===
