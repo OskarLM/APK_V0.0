@@ -678,8 +678,7 @@ if (window.__APP_LOADED__) {
     const loader = document.getElementById("loader");
     if (loader) loader.style.display = "none";
 
-    // ✅ AQUÍ, UNA SOLA VEZ
-    bindInfiniteScroll();
+
   }
 
   // Refrescar referencia del balance por si el CSS cambió
@@ -1283,50 +1282,45 @@ const resetPagina = () => {
     normalizarListasExistentes();
     actualizarListas();
     mostrar();
+    
+// ✅ UNA SOLA VEZ, AQUÍ
+bindInfiniteScroll();
+
   };
-  // ==========================
-// SCROLL INFINITO (LISTA REAL)
 // ==========================
-// ==========================
-// SCROLL INFINITO (LISTA REAL)
+// SCROLL INFINITO (WINDOW)
 // ==========================
 let _renderLock = false;
 
 function bindInfiniteScroll() {
-  const listaDiv = document.getElementById("lista");
-  if (!listaDiv || listaDiv.__scrollBound) return;
+  if (window.__scrollBound) return;
+  window.__scrollBound = true;
 
-  listaDiv.__scrollBound = true;
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (_renderLock) return;
 
-  listaDiv.addEventListener('scroll', () => {
-    const scrollBottom = listaDiv.scrollTop + listaDiv.clientHeight;
-    const contentHeight = listaDiv.scrollHeight;
+      const scrollBottom = window.innerHeight + window.scrollY;
+      const pageHeight = document.documentElement.scrollHeight;
 
-    // Si no estamos cerca del final, no hacemos nada
-    if (scrollBottom < contentHeight - 200) return;
+      // No estamos cerca del final
+      if (scrollBottom < pageHeight - 300) return;
 
-    // Si ya están todos los registros visibles, no hacemos nada
-    if (registrosVisibles >= filtradosGlobal.length) return;
+      // Ya están todos cargados
+      if (registrosVisibles >= filtradosGlobal.length) return;
 
-    if (_renderLock) return;
-    _renderLock = true;
+      _renderLock = true;
 
-    const loader = document.getElementById("loader");
-    if (loader) loader.style.display = "block";
-
-    // ✅ CLAVE: cargar TODOS los bloques necesarios
-    while (
-      registrosVisibles < filtradosGlobal.length &&
-      (listaDiv.scrollTop + listaDiv.clientHeight) >= listaDiv.scrollHeight - 200
-    ) {
       registrosVisibles += 25;
-    }
+      mostrar();
 
-    mostrar();
-
-    _renderLock = false;
-  }, { passive: true });
+      _renderLock = false;
+    },
+    { passive: true }
+  );
 }
+
   // ==========================
   // CSV / BACKUPS / SW / DROPBOX / AUTOSYNC — Íntegro
   // ==========================
