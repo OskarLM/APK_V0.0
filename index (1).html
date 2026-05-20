@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta id="vpZoom" name="viewport-zoom" content="placeholder" />
+  <title>MIS GASTOS</title>
+  <meta name="theme-color" content="#d4af37" />
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon"
+        href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230b0f1a'/><circle cx='50' cy='50' r='40' fill='none' stroke='%23d4af37' stroke-width='4'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-family='serif' font-weight='bold' font-size='35' fill='%23d4af37'>O&amp;J</text></svg>'" />
+  <link rel="stylesheet" href="./css/style.css" />
+
+  <style>
+    /* ── BARRA DE PESTAÑAS ── */
+    .tab-bar {
+      display: flex;
+      background: rgba(0,0,0,.65);
+      border-bottom: 1px solid rgba(212,175,55,.2);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 9px 2px 7px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: rgba(255,255,255,.4);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .4px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      text-transform: uppercase;
+      -webkit-tap-highlight-color: transparent;
+      transition: color .15s, border-color .15s;
+    }
+    .tab-btn .ti { font-size: 19px; line-height: 1; }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    /* ── PÁGINAS ── */
+    .tab-page { display: none; }
+    .tab-page.active { display: block; }
+
+    /* ── TOPBAR MEJORADO ── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+    }
+    .topbar-title { flex: 1; text-align: center; font-size: 13px; letter-spacing: 1.5px; }
+    .topbar-btn {
+      background: none; border: none;
+      color: var(--primary); font-size: 19px;
+      cursor: pointer; padding: 4px; opacity: .85;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ── FILTROS COMPACTOS ── */
+    .filtros-wrapper {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      padding: 8px 10px 6px;
+      background: rgba(0,0,0,.35);
+      border-bottom: 1px solid rgba(212,175,55,.12);
+    }
+    .filtro-item { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 58px; }
+    .filtro-item select { font-size: 11px; padding: 5px 4px; border-radius: 8px; }
+
+    /* ── FORMULARIO EN SECCIONES ── */
+    .form-section {
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(212,175,55,.14);
+      border-radius: 14px;
+      padding: 13px 13px 10px;
+      margin-bottom: 10px;
+    }
+    .form-section-title {
+      font-size: 9px; font-weight: 700;
+      color: var(--primary); letter-spacing: 1.2px;
+      text-transform: uppercase; margin-bottom: 9px;
+    }
+    .form-row { display: flex; gap: 7px; margin-bottom: 7px; align-items: stretch; }
+    .form-row:last-child { margin-bottom: 0; }
+    .form-row select, .form-row input[type="date"] { flex: 1; }
+    .btn-trash {
+      width: 50px; min-width: 50px; height: 50px;
+      border-radius: 11px;
+      background: rgba(239,68,68,.12);
+      border: 1px solid rgba(239,68,68,.25);
+      color: var(--danger); font-size: 19px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ── AJUSTES: GRID DE ACCIONES ── */
+    .section-label {
+      font-size: 9px; font-weight: 700;
+      color: var(--primary); letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin: 18px 0 8px;
+    }
+    .tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .tool-card {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(212,175,55,.18);
+      border-radius: 14px;
+      padding: 17px 10px;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 7px;
+      cursor: pointer; font-size: 11px;
+      font-weight: 600; text-align: center; color: inherit;
+      -webkit-tap-highlight-color: transparent;
+      transition: background .12s;
+    }
+    .tool-card:active { background: rgba(212,175,55,.08); }
+    .tool-card .ti { font-size: 24px; }
+    .tool-card.danger { border-color: rgba(239,68,68,.25); color: var(--danger); }
+    .tool-card.danger:active { background: rgba(239,68,68,.07); }
+
+    .ie-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 12px; }
+    .ie-card {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(212,175,55,.18);
+      border-radius: 14px; padding: 15px 10px;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 7px;
+      cursor: pointer; font-size: 11px;
+      font-weight: 600; text-align: center; color: inherit;
+      -webkit-tap-highlight-color: transparent;
+      transition: background .12s;
+    }
+    .ie-card:active { background: rgba(212,175,55,.08); }
+    .ie-card .ti { font-size: 24px; }
+    .ie-card.full { grid-column: 1 / -1; }
+
+    /* ── SUB-PESTAÑAS GRÁFICOS ── */
+    .gtab-bar {
+      display: flex;
+      border-bottom: 1px solid rgba(212,175,55,.15);
+      background: rgba(0,0,0,.2);
+    }
+    .gtab-btn {
+      flex: 1; padding: 11px 4px;
+      background: none; border: none;
+      border-bottom: 2px solid transparent;
+      color: rgba(255,255,255,.4);
+      font-size: 10px; font-weight: 700;
+      letter-spacing: .5px; cursor: pointer;
+      text-transform: uppercase;
+      -webkit-tap-highlight-color: transparent;
+      transition: color .15s, border-color .15s;
+    }
+    .gtab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    /* ── FOOTER solo en home/lista ── */
+    .footer-controles { position: fixed; bottom: 0; left: 0; right: 0; z-index: 200; }
+  </style>
+</head>
+
+<body>
+  <!-- PIN -->
+  <div id="authOverlay" class="popup-overlay" role="dialog" aria-modal="true">
+    <div class="popup-content">
+      <h2 style="color:var(--primary);margin-bottom:10px">ACCESO GOLD</h2>
+      <div class="pin-dots">
+        <div class="dot"></div><div class="dot"></div>
+        <div class="dot"></div><div class="dot"></div>
+      </div>
+      <div class="pin-grid">
+        <button class="btn-pin" onclick="pressPin(1)">1</button>
+        <button class="btn-pin" onclick="pressPin(2)">2</button>
+        <button class="btn-pin" onclick="pressPin(3)">3</button>
+        <button class="btn-pin" onclick="pressPin(4)">4</button>
+        <button class="btn-pin" onclick="pressPin(5)">5</button>
+        <button class="btn-pin" onclick="pressPin(6)">6</button>
+        <button class="btn-pin" onclick="pressPin(7)">7</button>
+        <button class="btn-pin" onclick="pressPin(8)">8</button>
+        <button class="btn-pin" onclick="pressPin(9)">9</button>
+        <button class="btn-pin" onclick="biometricAuth()" style="color:var(--electric-blue)">🫬</button>
+        <button class="btn-pin" onclick="pressPin(0)">0</button>
+        <button class="btn-pin" onclick="clearPin()" style="color:var(--danger)">✖</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="background-icon">O&amp;J</div>
+
+  <!-- ======= VISTA PRINCIPAL ======= -->
+  <div id="movimientos" class="hidden">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <button class="topbar-btn" onclick="iniciarDictado()" title="Voz">🎤</button>
+      <span class="topbar-title">MIS GASTOS • V23</span>
+      <div id="balance" style="font-size:13px;font-weight:700;color:var(--primary);cursor:pointer"
+           onclick="cambiarTab('tab-tools')">0.00 €</div>
+    </div>
+
+    <!-- BARRA PESTAÑAS -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tbn-home" onclick="cambiarTab('home')">
+        <span class="ti">🏠</span>Inicio
+      </button>
+      <button class="tab-btn" id="tbn-lista" onclick="cambiarTab('lista')">
+        <span class="ti">📋</span>Gastos
+      </button>
+      <button class="tab-btn" id="tbn-graficos" onclick="cambiarTab('graficos')">
+        <span class="ti">📈</span>Gráficos
+      </button>
+      <button class="tab-btn" id="tbn-tools" onclick="cambiarTab('tools')">
+        <span class="ti">⚙️</span>Ajustes
+      </button>
+    </div>
+
+    <!-- ═══ TAB HOME: DASHBOARD ═══ -->
+    <div class="tab-page active" id="tab-home">
+      <div class="container" style="padding-bottom:100px">
+        <div id="lista" aria-live="polite"></div>
+        <div id="loader" style="display:none"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB LISTA: GASTOS ═══ -->
+    <div class="tab-page" id="tab-lista">
+      <div class="filtros-wrapper">
+        <div class="filtro-item">
+          <span style="font-size:9px;color:var(--primary)">AÑO</span>
+          <select id="filtroAño" onchange="resetPagina();renderLista()"></select>
+        </div>
+        <div class="filtro-item">
+          <span style="font-size:9px;color:var(--primary)">MES</span>
+          <select id="filtroMes" onchange="resetPagina();renderLista()"></select>
+        </div>
+        <div class="filtro-item">
+          <span style="font-size:9px;color:var(--primary)">ORI</span>
+          <select id="filtroOri" onchange="resetPagina();renderLista()"></select>
+        </div>
+        <div class="filtro-item">
+          <span style="font-size:9px;color:var(--primary)">CAT</span>
+          <select id="filtroCat" onchange="resetPagina();renderLista()"></select>
+        </div>
+        <div class="filtro-item">
+          <span style="font-size:9px;color:var(--primary)">SUBCAT</span>
+          <select id="filtroSub" onchange="resetPagina();renderLista()"></select>
+        </div>
+      </div>
+      <div class="container" style="padding-bottom:100px">
+        <div id="lista2" aria-live="polite"></div>
+        <div id="loader2" style="display:none"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB GRÁFICOS ═══ -->
+    <div class="tab-page" id="tab-graficos">
+      <!-- Sub-pestañas — ahora con TARTA -->
+      <div class="gtab-bar">
+        <button class="gtab-btn active" id="gt1" onclick="cambiarGrafico(1)">CATEGORÍAS</button>
+        <button class="gtab-btn" id="gt2" onclick="cambiarGrafico(2)">MENSUAL</button>
+        <button class="gtab-btn" id="gt3" onclick="cambiarGrafico(3)">AÑO vs AÑO</button>
+        <button class="gtab-btn" id="gt4" onclick="cambiarGrafico(4)">🥧 TARTA</button>
+      </div>
+      <!-- Toggle casa -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px;border-bottom:1px solid rgba(212,175,55,.1);background:rgba(0,0,0,.2)">
+        <span style="font-size:12px;opacity:.6">Excluir operaciones casa</span>
+        <button id="btnCasaToggle" onclick="toggleCasa();_syncCasaBtn()"
+          style="background:rgba(255,255,255,.05);border:1px solid rgba(212,175,55,.25);border-radius:20px;padding:5px 14px;color:var(--primary);font-size:12px;font-weight:700;cursor:pointer;min-width:48px">
+          OFF
+        </button>
+      </div>
+      <!-- Contenedor con zoom habilitado -->
+      <div id="graficosScroll"
+           style="overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y pinch-zoom">
+        <div id="listaGraficos" aria-live="polite" style="min-width:100%;padding-bottom:30px"></div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB AJUSTES ═══ -->
+    <div class="tab-page" id="tab-tools">
+      <div class="container" style="padding-bottom:60px">
+
+        <div class="section-label">Entrada de datos</div>
+        <div class="tools-grid">
+          <div class="tool-card" onclick="abrirFormulario()">
+            <span class="ti">➕</span>Nuevo gasto
+          </div>
+          <div class="tool-card" onclick="abrirEntradaRapida()">
+            <span class="ti">⚡</span>Entrada rápida
+          </div>
+          <div class="tool-card" onclick="iniciarDictado()">
+            <span class="ti">🎤</span>Por voz
+          </div>
+          <div class="tool-card" onclick="escanearTicket()">
+            <span class="ti">📷</span>Escanear ticket
+          </div>
+          <div class="tool-card" onclick="toggleModoMasivo()">
+            <span class="ti">✏️</span>Edición masiva
+          </div>
+        </div>
+
+        <div class="section-label">Análisis y planificación</div>
+        <div class="tools-grid">
+          <div class="tool-card" onclick="abrirPresupuestos()">
+            <span class="ti">📊</span>Presupuestos
+          </div>
+          <div class="tool-card" onclick="abrirMetaAhorro()">
+            <span class="ti">🎯</span>Meta ahorro
+          </div>
+          <div class="tool-card" onclick="exportarPDFMensual()">
+            <span class="ti">📄</span>Informe PDF
+          </div>
+          <div class="tool-card" onclick="cambiarTab('graficos')">
+            <span class="ti">📈</span>Ver gráficos
+          </div>
+        </div>
+
+        <div class="section-label">Datos y backup</div>
+        <div class="ie-grid">
+          <div class="ie-card" onclick="exportarCSV()">
+            <span class="ti">📤</span>Exportar CSV
+          </div>
+          <div class="ie-card" onclick="document.getElementById('_inputImp').click()">
+            <span class="ti">📥</span>Importar CSV
+            <input id="_inputImp" class="hidden" type="file" onchange="importarCSV(event)" />
+          </div>
+          <div class="ie-card full" onclick="dropboxUploadEncryptedBackup()">
+            <span class="ti">☁️</span>Guardar en Dropbox
+          </div>
+          <div class="ie-card full" onclick="dropboxDownloadAndRestore()">
+            <span class="ti">🔄</span>Restaurar desde Dropbox
+          </div>
+        </div>
+
+        <div class="section-label">Seguridad</div>
+        <div class="tools-grid">
+          <div class="tool-card" onclick="cambiarPin()">
+            <span class="ti">🔑</span>Cambiar PIN
+          </div>
+          <div class="tool-card danger" onclick="borradoSeguro()">
+            <span class="ti">🗑️</span>Borrar todo
+          </div>
+        </div>
+
+        <!-- Estado backup -->
+        <div style="margin-top:20px;padding:12px 14px;background:rgba(0,0,0,.25);border:1px solid rgba(212,175,55,.15);border-radius:12px;display:flex;align-items:center;gap:8px">
+          <span id="backupIndicator" class="backup-indicator" style="display:flex;align-items:center;gap:8px;width:100%">
+            <span class="dot"></span>
+            <span class="txt" style="font-size:12px;opacity:.7">Última copia: —</span>
+          </span>
+        </div>
+
+        <div style="text-align:center;margin-top:22px;font-size:10px;opacity:.25;letter-spacing:1px">
+          MIS GASTOS v23 · O&amp;J
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER (solo home y lista) -->
+    <div class="footer-controles" id="footerFijo">
+      <div class="footer-row">
+        <button class="plus" id="footerLeft" aria-label="Nuevo"
+                style="width:55px;height:55px;background:var(--gold-metal);font-size:20px"
+                onclick="abrirFormulario()">+</button>
+        <button class="plus" id="footerCenter" aria-label="Entrada rápida"
+                onclick="abrirEntradaRapida()">⚡</button>
+        <div id="balFooter" style="font-size:13px;font-weight:700;color:var(--primary)"></div>
+        <button class="plus" aria-hidden="true"
+                style="opacity:0;pointer-events:none;position:absolute;left:-9999px;"></button>
+      </div>
+    </div>
+
+  </div><!-- /movimientos -->
+
+  <!-- ======= FORMULARIO ======= -->
+  <div id="form" class="hidden">
+    <div class="topbar" id="tituloForm">NUEVO REGISTRO</div>
+
+    <div class="container">
+
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <select id="origen"></select>
+        <input type="date" id="fecha" style="width:45%" onclick="this.showPicker()" />
+      </div>
+
+      <input type="hidden" id="editId" />
+
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="categoria" onchange="manejarNuevo(this,'categoria')"></select>
+        <button onclick="borrarElemento('categoria')"
+                style="width:70px;height:68px;border-radius:16px;background:var(--danger);border:none;color:#fff;font-size:24px">🗑️</button>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <select id="subcategoria" onchange="manejarNuevo(this,'subcategoria')"></select>
+        <button onclick="borrarElemento('subcategoria')"
+                style="width:70px;height:68px;border-radius:16px;background:var(--danger);border:none;color:#fff;font-size:24px">🗑️</button>
+      </div>
+
+      <input id="importe" type="number" step="0.01" inputmode="decimal" placeholder="0.00 €"
+             style="height:70px!important;font-weight:700" />
+
+      <textarea id="descripcion" maxlength="200" placeholder="Nota..." style="min-height:100px"></textarea>
+
+      <button onclick="guardar()"
+              style="background:var(--gold-gradient);color:#000;height:70px;width:100%;font-size:22px;margin-top:10px;border:none;font-weight:700;border-radius:16px">GUARDAR</button>
+
+      <div id="btnEliminarRegistro" class="hidden">
+        <button onclick="eliminarRegistroActual()"
+                style="background:var(--danger);color:#fff;height:60px;width:100%;font-size:18px;margin-top:10px;border:none;font-weight:700;border-radius:16px">ELIMINAR</button>
+      </div>
+
+      <button onclick="volver()" class="btn-cancel-plate">CANCELAR</button>
+    </div>
+  </div>
+
+  <!-- Legacy import/export (oculto, mantiene compatibilidad JS) -->
+  <div id="importExport" class="hidden"
+       style="position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);z-index:2000;">
+    <div class="topbar">IMPORT / EXPORT</div>
+    <div class="container" style="padding-top:25px;padding-bottom:110px;">
+      <div class="ie-actions">
+        <button class="btn-gold btn-unified" onclick="exportarCSV()">📊 Exportar CSV</button>
+        <button class="btn-silver btn-unified" onclick="document.getElementById('inputFile2').click()">📥 Importar CSV</button>
+        <input id="inputFile2" class="hidden" type="file" onchange="importarCSV(event)" />
+        <button class="btn-gold btn-unified" onclick="dropboxUploadEncryptedBackup()">📤 Guardar en Dropbox</button>
+        <button class="btn-silver btn-unified" onclick="dropboxDownloadAndRestore()">📥 Restaurar de Dropbox</button>
+        <button class="btn-unified btn-danger ie-span2" onclick="resetTotal()">⚠️ Reset</button>
+      </div>
+    </div>
+    <div id="ieFooter">
+      <button id="ieVolver" class="btn-silver btn-unified">⬅ VOLVER</button>
+    </div>
+  </div>
+
+  <!-- JS -->
+  <script src="./js/utils.js?v=2"></script>
+  <script src="./js/main.js?v=23"></script>
+
+  <script>
+  // ====================================
+  // CONTROLADOR DE PESTAÑAS v23 — CORREGIDO
+  // ====================================
+  let _tab  = 'home';
+  let _gTab = 1;
+  let _patcheado = false;
+
+  // ── VIEWPORT zoom en gráficos ──
+  const _vpNormal = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
+  const _vpZoom   = 'width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes';
+  function _setZoom(on) {
+    const vp = document.querySelector('meta[name="viewport"]');
+    if (vp) vp.content = on ? _vpZoom : _vpNormal;
+  }
+
+  // ── CAMBIAR PESTAÑA PRINCIPAL ──
+  function cambiarTab(tab) {
+    _tab = tab;
+    document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    const page = document.getElementById('tab-' + tab);
+    const btn  = document.getElementById('tbn-' + tab);
+    if (page) page.classList.add('active');
+    if (btn)  btn.classList.add('active');
+    window.scrollTo(0, 0);
+
+    // Footer solo en home y lista
+    const footer = document.getElementById('footerFijo');
+    if (footer) footer.style.display = (tab === 'home' || tab === 'lista') ? '' : 'none';
+
+    // Zoom solo en gráficos
+    _setZoom(tab === 'graficos');
+
+    // Renderizar contenido de la pestaña
+    if (!window.mostrar) return;
+    const movDiv = document.getElementById('movimientos');
+    if (!movDiv) return;
+
+    if (tab === 'home') {
+      if (window.lsRawSet) lsRawSet('modo_inicio', 'dashboard');
+      movDiv.dataset.modo = 'lista';
+      mostrar();
+    } else if (tab === 'lista') {
+      if (window.lsRawSet) lsRawSet('modo_inicio', 'lista');
+      movDiv.dataset.modo = 'lista';
+      // mostrar() escribe en #lista — esperamos a que termine y copiamos a #lista2
+      mostrar();
+      setTimeout(() => {
+        const src = document.getElementById('lista');
+        const dst = document.getElementById('lista2');
+        if (src && dst && src.innerHTML) { dst.innerHTML = src.innerHTML; src.innerHTML = ''; }
+      }, 50);
+    } else if (tab === 'graficos') {
+      _renderGrafico(_gTab);
+    }
+    _syncBalance();
+  }
+
+  // ── SINCRONIZAR BALANCE EN FOOTER ──
+  function _syncBalance() {
+    const bal  = document.getElementById('balance');
+    const balF = document.getElementById('balFooter');
+    if (bal && balF) balF.textContent = bal.textContent;
+  }
+
+  // ── FILTROS: llamado cuando cambia un select en pestaña lista ──
+  function renderLista() {
+    if (!window.mostrar) return;
+    const movDiv = document.getElementById('movimientos');
+    if (movDiv) movDiv.dataset.modo = 'lista';
+    if (window.lsRawSet) lsRawSet('modo_inicio', 'lista');
+    mostrar();
+    setTimeout(() => {
+      const src = document.getElementById('lista');
+      const dst = document.getElementById('lista2');
+      if (src && dst && src.innerHTML) { dst.innerHTML = src.innerHTML; src.innerHTML = ''; }
+      _syncBalance();
+    }, 50);
+  }
+
+  // ── SUB-PESTAÑAS GRÁFICOS ──
+  function cambiarGrafico(n) {
+    _gTab = n;
+    document.querySelectorAll('.gtab-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === n));
+    if (n === 3) { if (window.renderComparativaAnual) renderComparativaAnual(); return; }
+    if (n === 4) { _renderTarta(); return; }
+    _doGrafico(n);
+  }
+
+  function _renderGrafico(n) {
+    document.querySelectorAll('.gtab-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === n));
+    if (n === 4) { _renderTarta(); return; }
+    _doGrafico(n);
+  }
+
+  function _doGrafico(n) {
+    if (!window.mostrar) return;
+    const movDiv = document.getElementById('movimientos');
+    if (movDiv) movDiv.dataset.modo = n === 1 ? 'graficos' : 'graficos2';
+    mostrar();
+    setTimeout(() => {
+      const src = document.getElementById('lista');
+      const dst = document.getElementById('listaGraficos');
+      if (src && dst && src.innerHTML) { dst.innerHTML = src.innerHTML; src.innerHTML = ''; }
+    }, 50);
+  }
+
+  function _syncCasaBtn() {
+    const btn = document.getElementById('btnCasaToggle');
+    if (btn) btn.textContent = (typeof hideCasa !== 'undefined' && hideCasa) ? 'ON' : 'OFF';
+    _renderGrafico(_gTab);
+  }
+
+  // ── GRÁFICO DE TARTA (últimos 12 meses por subcategoría) ──
+  function _renderTarta() {
+    const dst = document.getElementById('listaGraficos');
+    if (!dst) return;
+    dst.innerHTML = '';
+
+    const ahora    = new Date();
+    const desde    = new Date(ahora.getFullYear(), ahora.getMonth() - 11, 1);
+    const desdeISO = desde.toISOString().split('T')[0];
+
+    if (!window.movimientos || !window.movimientos.length) {
+      dst.innerHTML = '<p style="text-align:center;opacity:.5;padding:30px">Sin datos</p>'; return;
+    }
+
+    const base = window.movimientos.filter(m => {
+      if (m.imp >= 0) return false;
+      if (m.f < desdeISO) return false;
+      if (typeof hideCasa !== 'undefined' && hideCasa && window.isCasaCategory && isCasaCategory(m.c)) return false;
+      return true;
+    });
+
+    if (!base.length) {
+      dst.innerHTML = '<p style="text-align:center;opacity:.5;padding:30px">Sin gastos en los últimos 12 meses</p>'; return;
+    }
+
+    // Agrupar por subcategoría
+    const totales = {};
+    for (const m of base) totales[m.s] = (totales[m.s] || 0) + Math.abs(m.imp);
+    const total = Object.values(totales).reduce((a, b) => a + b, 0);
+
+    const items   = Object.entries(totales).sort((a, b) => b[1] - a[1]);
+    const top     = items.slice(0, 12);
+    const restoV  = items.slice(12).reduce((s, [, v]) => s + v, 0);
+    if (restoV > 0) top.push(['Otros', restoV]);
+
+    const palette = [
+      '#d4af37','#ef4444','#22c55e','#3b82f6','#f59e0b','#8b5cf6',
+      '#ec4899','#14b8a6','#f97316','#06b6d4','#84cc16','#a855f7','#6b7280'
+    ];
+
+    // Construir SVG dona
+    const SZ = 280, CX = SZ/2, CY = SZ/2, R = 110, RI = 58;
+    let angle = -Math.PI / 2, paths = '';
+    top.forEach(([label, val], i) => {
+      const sweep = (val / total) * 2 * Math.PI;
+      const x1  = CX + R  * Math.cos(angle),          y1  = CY + R  * Math.sin(angle);
+      const x2  = CX + R  * Math.cos(angle + sweep),   y2  = CY + R  * Math.sin(angle + sweep);
+      const ix1 = CX + RI * Math.cos(angle),           iy1 = CY + RI * Math.sin(angle);
+      const ix2 = CX + RI * Math.cos(angle + sweep),   iy2 = CY + RI * Math.sin(angle + sweep);
+      const lg  = sweep > Math.PI ? 1 : 0;
+      const col = palette[i % palette.length];
+      paths += `<path d="M ${ix1} ${iy1} L ${x1} ${y1} A ${R} ${R} 0 ${lg} 1 ${x2} ${y2} L ${ix2} ${iy2} A ${RI} ${RI} 0 ${lg} 0 ${ix1} ${iy1} Z"
+        fill="${col}" stroke="rgba(0,0,0,.45)" stroke-width="1.5"
+        style="cursor:pointer;transition:opacity .15s"
+        onclick="this.style.opacity=this.style.opacity==='0.55'?'1':'0.55'"/>`;
+      angle += sweep;
+    });
+
+    const centro = `
+      <text x="${CX}" y="${CY-8}"  text-anchor="middle" fill="#d4af37" font-size="14" font-weight="700">${items.length} subcats</text>
+      <text x="${CX}" y="${CY+11}" text-anchor="middle" fill="rgba(255,255,255,.6)" font-size="11">${Math.round(total).toLocaleString('es')} €</text>`;
+
+    const svg = `<svg viewBox="0 0 ${SZ} ${SZ}" width="100%" style="max-width:310px;display:block;margin:0 auto">${paths}${centro}</svg>`;
+
+    const mC   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const mesD = mC[desde.getMonth()] + ' ' + desde.getFullYear();
+    const mesH = mC[ahora.getMonth()] + ' ' + ahora.getFullYear();
+
+    const leyenda = top.map(([label, val], i) => {
+      const pct = ((val / total) * 100).toFixed(1);
+      const col = palette[i % palette.length];
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="width:12px;height:12px;border-radius:3px;background:${col};flex-shrink:0"></div>
+        <div style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</div>
+        <div style="font-size:12px;font-weight:700;color:${col};white-space:nowrap;margin-right:4px">${pct}%</div>
+        <div style="font-size:11px;opacity:.5;white-space:nowrap">${Math.round(val).toLocaleString('es')}€</div>
+      </div>`;
+    }).join('');
+
+    dst.innerHTML = `
+      <div style="padding:16px 14px 4px;text-align:center">
+        <div style="font-size:10px;font-weight:700;color:#d4af37;letter-spacing:1.5px;margin-bottom:3px">DISTRIBUCIÓN POR SUBCATEGORÍA</div>
+        <div style="font-size:11px;opacity:.45;margin-bottom:14px">${mesD} → ${mesH}</div>
+        ${svg}
+        <div style="font-size:10px;opacity:.35;margin:6px 0 16px">Toca un sector para resaltarlo · Pellizca para hacer zoom</div>
+      </div>
+      <div style="padding:0 14px 30px">${leyenda}</div>`;
+  }
+
+  // ── PARCHES — se aplican cuando main.js ya ha cargado ──
+  window.addEventListener('load', () => {
+    if (_patcheado) return;
+    _patcheado = true;
+
+    // 1. Parchear mostrar() para sincronizar balance siempre
+    const _origMostrar = window.mostrar;
+    if (_origMostrar) {
+      window.mostrar = function () {
+        _origMostrar.apply(this, arguments);
+        _syncBalance();
+      };
+    }
+
+    // 2. Parchear volver() para regresar a la pestaña correcta
+    const _origVolver = window.volver;
+    if (_origVolver) {
+      window.volver = function () {
+        _origVolver();
+        // Si veníamos de gráficos, volver a lista; sino la pestaña actual
+        cambiarTab(_tab === 'graficos' ? 'lista' : _tab);
+      };
+    }
+
+    // 3. Parchear init() para arrancar en home con dashboard
+    const _origInit = window.init;
+    if (_origInit) {
+      window.init = function () {
+        _origInit.apply(this, arguments);
+        cambiarTab('home');
+      };
+    }
+  });
+  </script>
+
+</body>
+</html>
