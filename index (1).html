@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+  <title>MIS GASTOS V0.0 BETA</title>
+  <meta name="theme-color" content="#d4af37" />
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon"
+        href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230b0f1a'/><circle cx='50' cy='50' r='40' fill='none' stroke='%23d4af37' stroke-width='4'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-family='serif' font-weight='bold' font-size='35' fill='%23d4af37'>O&amp;J</text></svg>'" />
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+
+<body>
+  <!-- PIN -->
+  <div id="authOverlay" class="popup-overlay" role="dialog" aria-modal="true" aria-label="Acceso PIN">
+    <div class="popup-content">
+      <h2 style="color:var(--primary);margin-bottom:10px">ACCESO GOLD</h2>
+      <div class="pin-dots">
+        <div class="dot"></div><div class="dot"></div>
+        <div class="dot"></div><div class="dot"></div>
+      </div>
+      <div class="pin-grid">
+        <button class="btn-pin" onclick="pressPin(1)">1</button>
+        <button class="btn-pin" onclick="pressPin(2)">2</button>
+        <button class="btn-pin" onclick="pressPin(3)">3</button>
+        <button class="btn-pin" onclick="pressPin(4)">4</button>
+        <button class="btn-pin" onclick="pressPin(5)">5</button>
+        <button class="btn-pin" onclick="pressPin(6)">6</button>
+        <button class="btn-pin" onclick="pressPin(7)">7</button>
+        <button class="btn-pin" onclick="pressPin(8)">8</button>
+        <button class="btn-pin" onclick="pressPin(9)">9</button>
+        <button class="btn-pin" onclick="biometricAuth()" style="color:var(--electric-blue)">🫬</button>
+        <button class="btn-pin" onclick="pressPin(0)">0</button>
+        <button class="btn-pin" onclick="clearPin()" style="color:var(--danger)">✖</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="background-icon">O&amp;J</div>
+
+  <!-- VISTA PRINCIPAL -->
+  <div id="movimientos" class="hidden">
+
+    <div class="topbar">MIS GASTOS • V0.0 BETA</div>
+
+    <!-- BARRA DE PESTAÑAS -->
+    <div class="tab-bar" id="tabBar">
+      <button class="tab-btn active" id="tbn-lista" onclick="irTab('lista')">
+        <span class="ti">📋</span>Gastos
+      </button>
+      <button class="tab-btn" id="tbn-graficos" onclick="irTab('graficos')">
+        <span class="ti">📈</span>Gráficos
+      </button>
+    </div>
+
+    <!-- SUB-PESTAÑAS GRÁFICOS -->
+    <div id="gtab-bar">
+      <button class="gtab-btn active" id="gt1" onclick="irGrafico(1)">CATEGORÍAS</button>
+      <button class="gtab-btn" id="gt2" onclick="irGrafico(2)">MENSUAL</button>
+      <button class="gtab-btn" id="gt3" onclick="irGrafico(3)">AÑO vs AÑO</button>
+      <button class="gtab-btn" id="gt4" onclick="irGrafico(4)">🥧 TARTA</button>
+    </div>
+
+    <!-- BARRA CONTROLES GRÁFICOS -->
+    <div id="casaToggleBar">
+      <span style="font-size:12px;opacity:.6">Excluir casa</span>
+      <button id="btnCasaG" onclick="toggleCasa();_actualizarCasa()"
+        style="background:rgba(255,255,255,.05);border:1px solid rgba(212,175,55,.25);
+               border-radius:20px;padding:5px 14px;color:var(--primary);font-size:12px;
+               font-weight:700;cursor:pointer;min-width:44px">OFF</button>
+      <button id="btnFullG" onclick="_toggleGraficoFull()"
+        style="background:rgba(212,175,55,.1);border:1px solid rgba(212,175,55,.3);
+               border-radius:20px;padding:5px 14px;color:var(--primary);font-size:12px;
+               font-weight:700;cursor:pointer;margin-left:auto">⛶ Ampliar</button>
+    </div>
+
+    <!-- FILTROS -->
+    <div id="filtrosBar" class="filtros-wrapper">
+      <div class="filtro-item">
+        <span style="font-size:9px;color:var(--primary)">AÑO</span>
+        <select id="filtroAño" onchange="resetPagina();mostrar()"></select>
+      </div>
+      <div class="filtro-item">
+        <span style="font-size:9px;color:var(--primary)">MES</span>
+        <select id="filtroMes" onchange="resetPagina();mostrar()"></select>
+      </div>
+      <div class="filtro-item">
+        <span style="font-size:9px;color:var(--primary)">ORI</span>
+        <select id="filtroOri" onchange="resetPagina();mostrar()"></select>
+      </div>
+      <div class="filtro-item">
+        <span style="font-size:9px;color:var(--primary)">CAT</span>
+        <select id="filtroCat" onchange="resetPagina();mostrar()"></select>
+      </div>
+      <div class="filtro-item">
+        <span style="font-size:9px;color:var(--primary)">SUBCAT</span>
+        <select id="filtroSub" onchange="resetPagina();mostrar()"></select>
+      </div>
+    </div>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <div class="container" id="mainContainer">
+      <div id="lista" aria-live="polite"></div>
+      <div id="loader" style="display:none"><div class="spinner"></div></div>
+      <div style="height:250px"></div>
+    </div>
+
+    <!-- CONTENEDOR AÑO vs AÑO (propio para modo full) -->
+    <div id="anioContainer" style="display:none;padding-bottom:250px">
+      <div id="anioContent" style="padding:16px"></div>
+    </div>
+
+    <!-- TARTA -->
+    <div id="tartaContainer">
+      <div id="tartaContent" style="padding:16px"></div>
+    </div>
+
+    <!-- FOOTER original -->
+    <div class="footer-controles" id="footerMain">
+      <div class="footer-row">
+        <button class="plus" aria-label="Ver gráficos"
+                style="width:55px;height:55px;background:var(--gold-metal);font-size:20px">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="black" stroke-width="3">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6"  y1="20" x2="6"  y2="14"></line>
+          </svg>
+        </button>
+        <button class="plus" aria-label="Nuevo registro">+</button>
+        <div id="balance">0.00 €</div>
+        <button class="plus" aria-hidden="true"
+                style="opacity:0;pointer-events:none;position:absolute;left:-9999px;"></button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FORMULARIO — idéntico al original -->
+  <div id="form" class="hidden">
+    <div class="topbar" id="tituloForm">NUEVO REGISTRO</div>
+    <div class="container">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <select id="origen"></select>
+        <input type="date" id="fecha" style="width:45%" onclick="this.showPicker()" />
+      </div>
+      <input type="hidden" id="editId" />
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="categoria" onchange="manejarNuevo(this,'categoria')"></select>
+        <button onclick="borrarElemento('categoria')"
+                style="width:70px;height:68px;border-radius:16px;background:var(--danger);border:none;color:#fff;font-size:24px">🗑️</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <select id="subcategoria" onchange="manejarNuevo(this,'subcategoria')"></select>
+        <button onclick="borrarElemento('subcategoria')"
+                style="width:70px;height:68px;border-radius:16px;background:var(--danger);border:none;color:#fff;font-size:24px">🗑️</button>
+      </div>
+      <input id="importe" type="number" step="0.01" inputmode="decimal" placeholder="0.00 €"
+             style="height:70px!important;font-weight:700" />
+      <textarea id="descripcion" maxlength="200" placeholder="Nota..." style="min-height:100px"></textarea>
+      <button onclick="guardar()"
+              style="background:var(--gold-gradient);color:#000;height:70px;width:100%;font-size:22px;margin-top:10px;border:none;font-weight:700;border-radius:16px">GUARDAR</button>
+      <div id="btnEliminarRegistro" class="hidden">
+        <button onclick="eliminarRegistroActual()"
+                style="background:var(--danger);color:#fff;height:60px;width:100%;font-size:18px;margin-top:10px;border:none;font-weight:700;border-radius:16px">ELIMINAR</button>
+      </div>
+      <button onclick="volver()" class="btn-cancel-plate">CANCELAR</button>
+    </div>
+  </div>
+
+  <!-- IMPORT/EXPORT -->
+  <div id="importExport" class="hidden"
+       style="position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);z-index:2000;">
+    <div class="topbar">IMPORT / EXPORT</div>
+    <div class="container" style="padding-top:25px;padding-bottom:110px;">
+      <div class="ie-actions">
+        <button class="btn-gold btn-unified" onclick="exportarCSV()">📊 Exportar CSV</button>
+        <button class="btn-silver btn-unified" onclick="document.getElementById('inputFile2').click()">📥 Importar CSV</button>
+        <input id="inputFile2" class="hidden" type="file" onchange="importarCSV(event)" />
+        <button class="btn-gold btn-unified" onclick="dropboxUploadEncryptedBackup()">📤 Guardar en Dropbox</button>
+        <button class="btn-silver btn-unified" onclick="dropboxDownloadAndRestore()">📥 Restaurar de Dropbox</button>
+        <button class="btn-unified btn-danger ie-span2" onclick="resetTotal()">⚠️ Reset</button>
+      </div>
+    </div>
+    <div id="ieFooter">
+      <button id="ieVolver" class="btn-silver btn-unified">⬅ VOLVER</button>
+    </div>
+  </div>
+
+  <script src="./js/utils.js?v=2"></script>
+  <script src="./js/main.js?v=25"></script>
+
+  <script>
+  // ============================================================
+  // CONTROLADOR DE PESTAÑAS Y GRÁFICOS v24
+  // ============================================================
+  let _tab     = 'lista';
+  let _gTab    = 1;
+  let _graFull = false;
+  // Categorías excluidas en la tarta (usuario puede personalizar)
+  let _tartaExcluidas = new Set(
+    JSON.parse(localStorage.getItem('_tartaExcluidas') || '["Casa","Garaje"]')
+  );
+
+  const $  = id  => document.getElementById(id);
+  const $q = sel => document.querySelector(sel);
+  const $all = sel => document.querySelectorAll(sel);
+
+  // ── GUARDAR EXCLUSIONES TARTA ──
+  function _saveTartaExcluidas() {
+    localStorage.setItem('_tartaExcluidas', JSON.stringify([..._tartaExcluidas]));
+  }
+
+  // ── CAMBIAR PESTAÑA ──
+  function irTab(tab) {
+    _tab = tab;
+    $all('.tab-btn').forEach(b => b.classList.remove('active'));
+    $('tbn-' + tab)?.classList.add('active');
+
+    const esList = tab === 'lista';
+    $('filtrosBar').classList.toggle('hidden-tab', !esList);
+    $('gtab-bar').classList.toggle('visible', !esList);
+    $('casaToggleBar').classList.toggle('visible', !esList);
+    $('tartaContainer').classList.remove('visible');
+    $('anioContainer').style.display = 'none';
+    $('mainContainer').style.display = '';
+    const footer = $q('.footer-controles');
+    if (footer) footer.style.display = esList ? '' : 'none';
+    if (_graFull) _salirGraficoFull();
+
+    if (esList) {
+      const m = $('movimientos');
+      if (m) m.dataset.modo = 'lista';
+      if (window.lsRawSet) lsRawSet('modo_inicio', 'lista');
+      if (window.mostrar) mostrar();
+    } else {
+      irGrafico(_gTab);
+    }
+    window.scrollTo(0, 0);
+  }
+
+  // ── CAMBIAR SUB-PESTAÑA GRÁFICO ──
+  function irGrafico(n) {
+    _gTab = n;
+    $all('.gtab-btn').forEach((b, i) => b.classList.toggle('active', i + 1 === n));
+
+    // Ocultar todos los contenedores específicos
+    $('tartaContainer').classList.remove('visible');
+    $('anioContainer').style.display = 'none';
+    $('mainContainer').style.display = '';
+
+    // Botón ampliar: ocultar en tarta (no aplica)
+    const btnFull = $('btnFullG');
+    if (btnFull) btnFull.style.visibility = n === 4 ? 'hidden' : 'visible';
+
+    if (n === 4) {
+      $('mainContainer').style.display = 'none';
+      $('tartaContainer').classList.add('visible');
+      setTimeout(_dibujarTarta, 30);
+      return;
+    }
+
+    if (n === 3) {
+      // Año vs Año: renderizar en contenedor propio, NO en overlay
+      $('mainContainer').style.display = 'none';
+      $('anioContainer').style.display = '';
+      _dibujarAnioVsAnio();
+      return;
+    }
+
+    if (!window.mostrar) return;
+    const m = $('movimientos');
+    if (!m) return;
+    m.dataset.modo = n === 1 ? 'graficos' : 'graficos2';
+    mostrar();
+  }
+
+  function _actualizarCasa() {
+    const btn = $('btnCasaG');
+    if (btn) btn.textContent = (typeof hideCasa !== 'undefined' && hideCasa) ? 'ON' : 'OFF';
+    if (_gTab === 4) _dibujarTarta();
+    else if (_gTab === 3) _dibujarAnioVsAnio();
+    else irGrafico(_gTab);
+  }
+
+  // ── AÑO vs AÑO — renderizado propio (no overlay) ──
+  function _dibujarAnioVsAnio() {
+    const dst = $('anioContent');
+    if (!dst) return;
+    dst.innerHTML = '<div style="text-align:center;padding:20px;opacity:.5">Calculando...</div>';
+
+    let movs = [];
+    try { movs = JSON.parse(localStorage.getItem('movimientos') || '[]'); } catch(e) {}
+    if (!Array.isArray(movs)) movs = [];
+
+    const ahora = new Date();
+    const añoA  = ahora.getFullYear();
+    const añoB  = añoA - 1;
+    const mesesC = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const excCasa = typeof hideCasa !== 'undefined' && hideCasa;
+
+    // Calcular totales por mes para cada año
+    const sumaAnio = (anio) => {
+      return Array.from({length:12}, (_,mes) => {
+        return movs.filter(m => {
+          const d = (m.f||'').split('-');
+          if (parseInt(d[0]) !== anio || parseInt(d[1])-1 !== mes || m.imp >= 0) return false;
+          if (excCasa && m.c && (m.c.toLowerCase().includes('casa') || m.c.toLowerCase().includes('garaje') || m.c.toLowerCase().includes('reforma'))) return false;
+          return true;
+        }).reduce((s,m) => s + Math.abs(m.imp), 0);
+      });
+    };
+
+    const datosA = sumaAnio(añoA);
+    const datosB = sumaAnio(añoB);
+    const maxVal = Math.max(...datosA, ...datosB, 1);
+    const fmtE   = n => n > 0 ? Math.round(n).toLocaleString('es') + '€' : '—';
+    const totA   = datosA.reduce((a,b)=>a+b,0);
+    const totB   = datosB.reduce((a,b)=>a+b,0);
+    const difTot = totA - totB;
+
+    let html = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding:0 4px">
+        <div style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px">📅 ${añoA} vs ${añoB}</div>
+        <div style="font-size:12px;color:${difTot>0?'var(--danger)':'var(--success)'}">
+          ${difTot>0?'↑':'↓'} ${Math.abs(Math.round(difTot)).toLocaleString('es')}€ vs año anterior
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:16px;font-size:11px">
+        <span><span style="display:inline-block;width:10px;height:10px;background:var(--danger);border-radius:2px;margin-right:4px"></span>${añoA}: ${fmtE(totA)}</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:rgba(212,175,55,.5);border-radius:2px;margin-right:4px"></span>${añoB}: ${fmtE(totB)}</span>
+      </div>`;
+
+    // Una fila por mes con doble barra horizontal
+    for (let i = 0; i < 12; i++) {
+      const vA = datosA[i], vB = datosB[i];
+      const pA = Math.round((vA / maxVal) * 100);
+      const pB = Math.round((vB / maxVal) * 100);
+      const diff = vA - vB;
+      const colDiff = diff > 0 ? 'var(--danger)' : diff < 0 ? 'var(--success)' : 'transparent';
+
+      html += `
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+            <span style="font-weight:700;color:var(--primary);min-width:30px">${mesesC[i]}</span>
+            <span style="color:var(--danger);min-width:70px;text-align:right">${fmtE(vA)}</span>
+            <span style="min-width:70px;text-align:center;color:${colDiff};font-size:10px">${diff!==0?(diff>0?'↑':'↓')+Math.abs(Math.round(diff)).toLocaleString('es')+'€':''}</span>
+            <span style="color:rgba(212,175,55,.6);min-width:70px;text-align:left">${fmtE(vB)}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="height:8px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden">
+              <div style="width:${pA}%;height:100%;background:var(--danger);border-radius:4px;transition:width .4s"></div>
+            </div>
+            <div style="height:8px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden">
+              <div style="width:${pB}%;height:100%;background:rgba(212,175,55,.5);border-radius:4px;transition:width .4s"></div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    html += `<div style="height:30px"></div>`;
+    dst.innerHTML = html;
+  }
+
+  // ── MODO PANTALLA COMPLETA ──
+  function _toggleGraficoFull() {
+    _graFull ? _salirGraficoFull() : _entrarGraficoFull();
+  }
+
+  function _entrarGraficoFull() {
+    _graFull = true;
+    const btnFull = $('btnFullG');
+    if (btnFull) btnFull.textContent = '✕ Reducir';
+
+    // Intentar landscape (Android Chrome; iOS lo ignora)
+    try { screen.orientation?.lock('landscape').catch(()=>{}); } catch(e) {}
+
+    // Ocultar UI
+    $q('.topbar').style.display       = 'none';
+    $('tabBar').style.display         = 'none';
+    $('gtab-bar').classList.remove('visible');
+    $('casaToggleBar').classList.remove('visible');
+
+    // Estirar contenedores al 100%
+    const fullStyle = 'position:fixed;inset:0;overflow:auto;z-index:500;background:var(--bg);padding:44px 10px 10px';
+    $('mainContainer').style.cssText  = fullStyle;
+    $('anioContainer').style.cssText  = fullStyle;
+    $('tartaContainer').style.cssText = fullStyle;
+
+    // Mini barra flotante
+    const mb = document.createElement('div');
+    mb.id = '_miniBar';
+    mb.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:600;display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:rgba(11,15,26,.95);border-bottom:1px solid rgba(212,175,55,.2);backdrop-filter:blur(8px)';
+    mb.innerHTML =
+      '<div style="display:flex;gap:4px">'
+      + [['CATEG.',1],['MENSUAL',2],['AÑO/AÑO',3],['🥧',4]].map(([lbl,n]) =>
+          `<button onclick="irGrafico(${n})" id="_mb${n}"
+            style="background:none;border:none;color:rgba(255,255,255,.5);font-size:10px;cursor:pointer;padding:4px 7px;border-radius:7px">${lbl}</button>`
+        ).join('')
+      + '</div>'
+      + '<div style="display:flex;gap:6px;align-items:center">'
+      + '<button onclick="toggleCasa();_actualizarCasa()" id="_mbCasa" '
+      + 'style="background:none;border:1px solid rgba(212,175,55,.3);color:var(--primary);font-size:10px;font-weight:700;cursor:pointer;padding:3px 9px;border-radius:12px">🏠 OFF</button>'
+      + '<button onclick="_salirGraficoFull()" '
+      + 'style="background:var(--primary);color:#000;font-size:12px;font-weight:700;cursor:pointer;padding:5px 12px;border-radius:12px;border:none">✕</button>'
+      + '</div>';
+    document.body.appendChild(mb);
+    _sincMiniBar();
+
+    setTimeout(() => irGrafico(_gTab), 80);
+  }
+
+  function _salirGraficoFull() {
+    _graFull = false;
+    const btnFull = $('btnFullG');
+    if (btnFull) btnFull.textContent = '⛶ Ampliar';
+
+    try { screen.orientation?.unlock(); } catch(e) {}
+
+    $q('.topbar').style.display = '';
+    $('tabBar').style.display   = '';
+    $('gtab-bar').classList.add('visible');
+    $('casaToggleBar').classList.add('visible');
+    $('mainContainer').style.cssText  = '';
+    $('anioContainer').style.cssText  = '';
+    $('tartaContainer').style.cssText = '';
+    $('_miniBar')?.remove();
+
+    setTimeout(() => irGrafico(_gTab), 80);
+  }
+
+  function _sincMiniBar() {
+    [1,2,3,4].forEach(n => {
+      const b = $('_mb'+n);
+      if (b) {
+        b.style.color      = n===_gTab ? 'var(--primary)' : 'rgba(255,255,255,.5)';
+        b.style.background = n===_gTab ? 'rgba(212,175,55,.15)' : 'none';
+      }
+    });
+    const c = $('_mbCasa');
+    if (c) c.textContent = '🏠 ' + ((typeof hideCasa!=='undefined'&&hideCasa)?'ON':'OFF');
+  }
+
+  // ── TARTA con selector de exclusiones ──
+  function _dibujarTarta() {
+    const dst = $('tartaContent');
+    if (!dst) return;
+    dst.innerHTML = '<div style="text-align:center;padding:30px;opacity:.5">Calculando...</div>';
+
+    let movs = [];
+    try { movs = JSON.parse(localStorage.getItem('movimientos')||'[]'); } catch(e) {}
+    if (!Array.isArray(movs)) movs = [];
+
+    const ahora    = new Date();
+    const desde    = new Date(ahora.getFullYear(), ahora.getMonth()-11, 1);
+    const desdeISO = desde.toISOString().split('T')[0];
+    const excCasa  = typeof hideCasa !== 'undefined' && hideCasa;
+
+    // Obtener todas las categorías presentes
+    const todasCats = [...new Set(movs.filter(m=>m.imp<0&&m.f>=desdeISO).map(m=>m.c))].sort();
+
+    const base = movs.filter(m => {
+      if (m.imp >= 0 || m.f < desdeISO) return false;
+      if (excCasa && window.isCasaCategory && isCasaCategory(m.c)) return false;
+      if (_tartaExcluidas.has(m.c) || _tartaExcluidas.has(m.s)) return false;
+      return true;
+    });
+
+    // Selector de exclusiones
+    const checksCats = todasCats.map(cat => {
+      const checked = !_tartaExcluidas.has(cat);
+      return `<label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;cursor:pointer">
+        <input type="checkbox" ${checked?'checked':''} onchange="_toggleExclusion('${cat.replace(/'/g,"\\'")}',this.checked)"
+          style="width:16px;height:16px;accent-color:var(--primary)">
+        <span>${cat}</span>
+      </label>`;
+    }).join('');
+
+    if (!base.length) {
+      dst.innerHTML = `
+        <div style="padding:14px">
+          <div style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;margin-bottom:8px">CATEGORÍAS INCLUIDAS</div>
+          ${checksCats}
+          <p style="text-align:center;opacity:.5;padding:20px">Sin gastos con los filtros actuales</p>
+        </div>`;
+      return;
+    }
+
+    // Agrupar por subcategoría
+    const totales = {};
+    for (const m of base) totales[m.s] = (totales[m.s]||0) + Math.abs(m.imp);
+    const total = Object.values(totales).reduce((a,b)=>a+b, 0);
+    const items = Object.entries(totales).sort((a,b)=>b[1]-a[1]);
+    const top   = items.slice(0,12);
+    const rv    = items.slice(12).reduce((s,[,v])=>s+v, 0);
+    if (rv > 0) top.push(['Otros', rv]);
+
+    const pal = ['#d4af37','#ef4444','#22c55e','#3b82f6','#f59e0b','#8b5cf6',
+                 '#ec4899','#14b8a6','#f97316','#06b6d4','#84cc16','#a855f7','#6b7280'];
+    const SZ=280, CX=140, CY=140, R=110, RI=58;
+    let angle=-Math.PI/2, paths='';
+
+    top.forEach(([,val], i) => {
+      const sw = (val/total)*2*Math.PI;
+      const c0=Math.cos(angle), s0=Math.sin(angle), c1=Math.cos(angle+sw), s1=Math.sin(angle+sw);
+      const lg = sw>Math.PI?1:0, col=pal[i%pal.length];
+      paths += `<path d="M${CX+RI*c0} ${CY+RI*s0} L${CX+R*c0} ${CY+R*s0} A${R} ${R} 0 ${lg} 1 ${CX+R*c1} ${CY+R*s1} L${CX+RI*c1} ${CY+RI*s1} A${RI} ${RI} 0 ${lg} 0 ${CX+RI*c0} ${CY+RI*s0} Z"
+        fill="${col}" stroke="rgba(0,0,0,.4)" stroke-width="1.5"
+        style="cursor:pointer;transition:opacity .2s"
+        onclick="this.style.opacity=this.style.opacity==='0.4'?'1':'0.4'"/>`;
+      angle += sw;
+    });
+
+    const mC  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const ley = top.map(([label,val], i) => {
+      const pct=((val/total)*100).toFixed(1), col=pal[i%pal.length];
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+        <div style="width:13px;height:13px;border-radius:3px;background:${col};flex-shrink:0"></div>
+        <div style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</div>
+        <div style="font-size:13px;font-weight:700;color:${col};margin-right:6px">${pct}%</div>
+        <div style="font-size:12px;opacity:.5">${Math.round(val).toLocaleString('es')}€</div>
+      </div>`;
+    }).join('');
+
+    // Panel de exclusiones colapsable
+    const panelExcl = `
+      <details style="margin-bottom:14px;background:rgba(255,255,255,.03);border:1px solid rgba(212,175,55,.15);border-radius:12px;padding:10px 14px">
+        <summary style="font-size:11px;font-weight:700;color:var(--primary);letter-spacing:1px;cursor:pointer;list-style:none">
+          ⚙️ CATEGORÍAS INCLUIDAS <span style="opacity:.5;font-weight:400">(toca para editar)</span>
+        </summary>
+        <div style="margin-top:10px;columns:2;gap:12px">${checksCats}</div>
+      </details>`;
+
+    dst.innerHTML = `
+      <div style="text-align:center;margin-bottom:6px">
+        <div style="font-size:11px;font-weight:700;color:#d4af37;letter-spacing:1.5px;margin-bottom:4px">DISTRIBUCIÓN POR SUBCATEGORÍA</div>
+        <div style="font-size:11px;opacity:.45;margin-bottom:12px">${mC[desde.getMonth()]} ${desde.getFullYear()} → ${mC[ahora.getMonth()]} ${ahora.getFullYear()}</div>
+        <svg viewBox="0 0 ${SZ} ${SZ}" width="100%" style="max-width:300px;display:block;margin:0 auto">
+          ${paths}
+          <text x="140" y="132" text-anchor="middle" fill="#d4af37" font-size="14" font-weight="bold">${items.length} subcats</text>
+          <text x="140" y="151" text-anchor="middle" fill="rgba(255,255,255,.6)" font-size="11">${Math.round(total).toLocaleString('es')} €</text>
+        </svg>
+        <div style="font-size:10px;opacity:.35;margin:6px 0 14px">Toca un sector para resaltarlo</div>
+      </div>
+      <div style="padding:0 4px 10px">${panelExcl}</div>
+      <div style="padding:0 4px 30px">${ley}</div>`;
+  }
+
+  function _toggleExclusion(cat, incluir) {
+    if (incluir) _tartaExcluidas.delete(cat);
+    else         _tartaExcluidas.add(cat);
+    _saveTartaExcluidas();
+    _dibujarTarta();
+  }
+
+  // ── PARCHES al main.js ──
+  window.addEventListener('load', () => {
+
+    // Sincronizar pestañas cuando main.js llama setModo()
+    const _origSetModo = window.setModo;
+    if (_origSetModo) {
+      window.setModo = function(modo) {
+        _origSetModo(modo);
+        const esGraf = modo==='graficos'||modo==='graficos2';
+        if (esGraf) {
+          _tab='graficos'; _gTab=modo==='graficos'?1:2;
+          $all('.tab-btn').forEach(b=>b.classList.remove('active'));
+          $('tbn-graficos')?.classList.add('active');
+          $all('.gtab-btn').forEach((b,i)=>b.classList.toggle('active',i+1===_gTab));
+          $('gtab-bar')?.classList.add('visible');
+          $('casaToggleBar')?.classList.add('visible');
+          $('filtrosBar')?.classList.add('hidden-tab');
+          const f=$q('.footer-controles'); if(f) f.style.display='none';
+          if(_graFull)_sincMiniBar();
+        } else if (modo==='lista') {
+          if(_graFull)_salirGraficoFull();
+          _tab='lista';
+          $all('.tab-btn').forEach(b=>b.classList.remove('active'));
+          $('tbn-lista')?.classList.add('active');
+          $('gtab-bar')?.classList.remove('visible');
+          $('casaToggleBar')?.classList.remove('visible');
+          $('filtrosBar')?.classList.remove('hidden-tab');
+          $('tartaContainer')?.classList.remove('visible');
+          $('anioContainer').style.display='none';
+          $('mainContainer').style.display='';
+          const f=$q('.footer-controles'); if(f) f.style.display='';
+        }
+      };
+    }
+
+    // volver() regresa a lista
+    const _origVolver = window.volver;
+    if (_origVolver) {
+      window.volver = function() {
+        if (_graFull) _salirGraficoFull();
+        _origVolver();
+        irTab('lista');
+      };
+    }
+  });
+  </script>
+
+</body>
+</html>
